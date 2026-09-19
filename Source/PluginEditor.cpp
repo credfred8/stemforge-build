@@ -232,8 +232,8 @@ void StemForgeAudioProcessorEditor::chooseInput()
 {
     chooser = std::make_unique<juce::FileChooser>("Выбери трек или семпл", inputFile.getParentDirectory(),
                                                    "*.wav;*.mp3;*.flac;*.aiff;*.aif;*.ogg");
-    const int flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
-    chooser->launchAsync(flags, [this](const juce::FileChooser& fc)
+    const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+    chooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
     {
         const auto result = fc.getResult();
         if (result.existsAsFile())
@@ -246,8 +246,8 @@ void StemForgeAudioProcessorEditor::chooseOutputFolder()
     chooser = std::make_unique<juce::FileChooser>("Куда сохранять стемы?",
                                                    outputDirectory.isDirectory() ? outputDirectory
                                                                                : inputFile.getParentDirectory());
-    const int flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
-    chooser->launchAsync(flags, [this](const juce::FileChooser& fc)
+    const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+    chooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
     {
         const auto result = fc.getResult();
         if (result.isDirectory())
