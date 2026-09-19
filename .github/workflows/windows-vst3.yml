@@ -18,6 +18,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache build dependencies
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: stemforge-deps-juce902-ort1290-demucs6s-v1
+
       - name: Bootstrap dependencies
         shell: powershell
         run: .\scripts\bootstrap.ps1
