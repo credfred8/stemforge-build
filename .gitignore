@@ -1,0 +1,5 @@
+build/
+deps/
+dist/
+*.zip
+*.sha256
