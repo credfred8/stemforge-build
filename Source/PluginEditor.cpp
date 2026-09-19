@@ -9,6 +9,11 @@ namespace
     const juce::Colour muted   = juce::Colour::fromRGB(151, 158, 168);
     const juce::Colour accent  = juce::Colour::fromRGB(105, 178, 255);
     const juce::Colour success = juce::Colour::fromRGB(123, 214, 160);
+
+    juce::String ru(const wchar_t* value)
+    {
+        return juce::String(value);
+    }
 }
 
 StemForgeAudioProcessorEditor::ForgeLookAndFeel::ForgeLookAndFeel()
@@ -43,7 +48,7 @@ void StemForgeAudioProcessorEditor::ForgeLookAndFeel::drawToggleButton(
 
     g.setColour(text);
     g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
-    g.drawFittedText((on ? "✓  " : "") + b.getButtonText(),
+    g.drawFittedText((on ? "[x]  " : "") + b.getButtonText(),
                      b.getLocalBounds().reduced(10, 2), juce::Justification::centred, 1);
 }
 
@@ -53,14 +58,14 @@ StemForgeAudioProcessorEditor::StemForgeAudioProcessorEditor(StemForgeAudioProce
     setLookAndFeel(&lookAndFeel);
     setOpaque(true);
     setResizable(true, true);
-    setResizeLimits(720, 560, 1200, 900);
-    setSize(860, 660);
+    setResizeLimits(760, 600, 1200, 900);
+    setSize(900, 690);
 
     title.setText("STEMFORGE", juce::dontSendNotification);
     title.setColour(juce::Label::textColourId, text);
     title.setFont(juce::FontOptions(30.0f, juce::Font::bold));
 
-    subtitle.setText("AI STEM SEPARATOR • LOCAL • OFFLINE • 6 STEMS", juce::dontSendNotification);
+    subtitle.setText("AI STEM SEPARATOR | LOCAL | OFFLINE | 6 STEMS", juce::dontSendNotification);
     subtitle.setColour(juce::Label::textColourId, accent);
     subtitle.setFont(juce::FontOptions(12.0f, juce::Font::bold));
 
@@ -72,12 +77,26 @@ StemForgeAudioProcessorEditor::StemForgeAudioProcessorEditor(StemForgeAudioProce
     statusLabel.setFont(juce::FontOptions(13.0f));
     hintLabel.setColour(juce::Label::textColourId, muted);
     hintLabel.setFont(juce::FontOptions(12.0f));
-    hintLabel.setText("Отмеченные стемы экспортируются отдельно. Clean Sample = сумма остальных стемов без отмеченных.",
-                      juce::dontSendNotification);
+
+    loadButton.setButtonText(ru(L"\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0430\u0443\u0434\u0438\u043e"));
+    outputButton.setButtonText(ru(L"\u041f\u0430\u043f\u043a\u0430 \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0430"));
+    separateButton.setButtonText(ru(L"\u0420\u0410\u0417\u0414\u0415\u041b\u0418\u0422\u042c HQ"));
+    openFolderButton.setButtonText(ru(L"\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442"));
+    cleanButton.setButtonText(ru(L"Clean Sample: \u0443\u0431\u0440\u0430\u0442\u044c \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043d\u044b\u0435 \u0441\u0442\u0435\u043c\u044b"));
+
+    hintLabel.setText(
+        ru(L"\u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043d\u044b\u0435 \u0441\u0442\u0435\u043c\u044b \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u044e\u0442\u0441\u044f \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u043e. Clean Sample = \u0441\u0443\u043c\u043c\u0430 \u043e\u0441\u0442\u0430\u043b\u044c\u043d\u044b\u0445 \u0441\u0442\u0435\u043c\u043e\u0432."),
+        juce::dontSendNotification);
 
     const std::array<juce::String, stemforge::stemCount> labels {
-        "Ударные", "Басс", "Other / Melody", "Вокал", "Гитара", "Пианино"
+        ru(L"\u0423\u0434\u0430\u0440\u043d\u044b\u0435"),
+        ru(L"\u0411\u0430\u0441\u0441"),
+        "Other / Melody",
+        ru(L"\u0412\u043e\u043a\u0430\u043b"),
+        ru(L"\u0413\u0438\u0442\u0430\u0440\u0430"),
+        ru(L"\u041f\u0438\u0430\u043d\u0438\u043d\u043e")
     };
+
     for (int i = 0; i < stemforge::stemCount; ++i)
     {
         stemButtons[static_cast<size_t>(i)].setButtonText(labels[static_cast<size_t>(i)]);
@@ -108,6 +127,7 @@ StemForgeAudioProcessorEditor::StemForgeAudioProcessorEditor(StemForgeAudioProce
         if (last.existsAsFile())
             inputFile = last;
     }
+
     if (processor.state.hasProperty("outputDir"))
     {
         const juce::File lastOut(processor.state["outputDir"].toString());
@@ -137,7 +157,7 @@ void StemForgeAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour::fromRGB(52, 57, 65));
     g.drawRoundedRectangle(body, 16.0f, 1.0f);
 
-    auto drop = juce::Rectangle<float>(30.0f, 120.0f, getWidth() - 60.0f, 102.0f);
+    auto drop = juce::Rectangle<float>(30.0f, 120.0f, getWidth() - 60.0f, 104.0f);
     g.setColour(juce::Colour::fromRGB(31, 35, 41));
     g.fillRoundedRectangle(drop, 12.0f);
     g.setColour(accent.withAlpha(0.35f));
@@ -152,19 +172,20 @@ void StemForgeAudioProcessorEditor::resized()
     subtitle.setBounds(header.removeFromTop(24));
 
     area.removeFromTop(18);
-    auto fileBox = area.removeFromTop(102).reduced(14, 10);
-    auto fileText = fileBox.removeFromLeft(std::max(250, fileBox.getWidth() - 300));
-    inputLabel.setBounds(fileText.removeFromTop(38));
-    outputLabel.setBounds(fileText.removeFromTop(32));
+    auto fileBox = area.removeFromTop(104).reduced(14, 10);
+    auto fileText = fileBox.removeFromLeft(std::max(300, fileBox.getWidth() - 320));
+    inputLabel.setBounds(fileText.removeFromTop(40));
+    outputLabel.setBounds(fileText.removeFromTop(34));
     auto fileButtons = fileBox.reduced(4, 4);
-    loadButton.setBounds(fileButtons.removeFromTop(36));
+    loadButton.setBounds(fileButtons.removeFromTop(38));
     fileButtons.removeFromTop(6);
-    outputButton.setBounds(fileButtons.removeFromTop(36));
+    outputButton.setBounds(fileButtons.removeFromTop(38));
 
     area.removeFromTop(24);
     const int gap = 10;
     const int cellW = (area.getWidth() - gap * 2) / 3;
-    const int cellH = 50;
+    const int cellH = 52;
+
     for (int i = 0; i < stemforge::stemCount; ++i)
     {
         const int row = i / 3;
@@ -173,17 +194,18 @@ void StemForgeAudioProcessorEditor::resized()
                                                       area.getY() + row * (cellH + gap),
                                                       cellW, cellH);
     }
-    area.removeFromTop(cellH * 2 + gap + 16);
-    cleanButton.setBounds(area.removeFromTop(46));
-    hintLabel.setBounds(area.removeFromTop(36));
+
+    area.removeFromTop(cellH * 2 + gap + 18);
+    cleanButton.setBounds(area.removeFromTop(48));
+    hintLabel.setBounds(area.removeFromTop(42));
 
     area.removeFromTop(8);
     progressBar.setBounds(area.removeFromTop(24));
     area.removeFromTop(8);
-    statusLabel.setBounds(area.removeFromTop(34));
+    statusLabel.setBounds(area.removeFromTop(36));
     area.removeFromTop(8);
 
-    auto actions = area.removeFromTop(56);
+    auto actions = area.removeFromTop(58);
     separateButton.setBounds(actions.removeFromLeft((actions.getWidth() * 2) / 3).reduced(0, 2));
     actions.removeFromLeft(10);
     openFolderButton.setBounds(actions.reduced(0, 2));
@@ -193,6 +215,7 @@ bool StemForgeAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArr
 {
     if (files.isEmpty())
         return false;
+
     const auto ext = juce::File(files[0]).getFileExtension().toLowerCase();
     return ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".aiff"
         || ext == ".aif" || ext == ".ogg";
@@ -217,22 +240,27 @@ void StemForgeAudioProcessorEditor::updateFileLabel()
     {
         inputLabel.setText(inputFile.getFileName(), juce::dontSendNotification);
         outputLabel.setText(outputDirectory.isDirectory()
-                                ? "Экспорт: " + outputDirectory.getFullPathName()
-                                : "Экспорт: рядом с исходником / <имя>_StemForge",
+                                ? ru(L"\u042d\u043a\u0441\u043f\u043e\u0440\u0442: ") + outputDirectory.getFullPathName()
+                                : ru(L"\u042d\u043a\u0441\u043f\u043e\u0440\u0442: \u0440\u044f\u0434\u043e\u043c \u0441 \u0438\u0441\u0445\u043e\u0434\u043d\u0438\u043a\u043e\u043c / <\u0438\u043c\u044f>_StemForge"),
                             juce::dontSendNotification);
     }
     else
     {
-        inputLabel.setText("Перетащи сюда трек / семпл", juce::dontSendNotification);
-        outputLabel.setText("WAV • MP3 • FLAC • AIFF • OGG", juce::dontSendNotification);
+        inputLabel.setText(ru(L"\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438 \u0441\u044e\u0434\u0430 \u0442\u0440\u0435\u043a \u0438\u043b\u0438 \u0441\u0435\u043c\u043f\u043b"), juce::dontSendNotification);
+        outputLabel.setText("WAV | MP3 | FLAC | AIFF | OGG", juce::dontSendNotification);
     }
 }
 
 void StemForgeAudioProcessorEditor::chooseInput()
 {
-    chooser = std::make_unique<juce::FileChooser>("Выбери трек или семпл", inputFile.getParentDirectory(),
-                                                   "*.wav;*.mp3;*.flac;*.aiff;*.aif;*.ogg");
-    const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+    chooser = std::make_unique<juce::FileChooser>(
+        ru(L"\u0412\u044b\u0431\u0435\u0440\u0438 \u0442\u0440\u0435\u043a \u0438\u043b\u0438 \u0441\u0435\u043c\u043f\u043b"),
+        inputFile.getParentDirectory(),
+        "*.wav;*.mp3;*.flac;*.aiff;*.aif;*.ogg");
+
+    const int chooserFlags = juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectFiles;
+
     chooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
     {
         const auto result = fc.getResult();
@@ -243,10 +271,13 @@ void StemForgeAudioProcessorEditor::chooseInput()
 
 void StemForgeAudioProcessorEditor::chooseOutputFolder()
 {
-    chooser = std::make_unique<juce::FileChooser>("Куда сохранять стемы?",
-                                                   outputDirectory.isDirectory() ? outputDirectory
-                                                                               : inputFile.getParentDirectory());
-    const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+    chooser = std::make_unique<juce::FileChooser>(
+        ru(L"\u041a\u0443\u0434\u0430 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u0442\u044c \u0441\u0442\u0435\u043c\u044b?"),
+        outputDirectory.isDirectory() ? outputDirectory : inputFile.getParentDirectory());
+
+    const int chooserFlags = juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectDirectories;
+
     chooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
     {
         const auto result = fc.getResult();
@@ -264,6 +295,7 @@ stemforge::SeparationOptions StemForgeAudioProcessorEditor::currentOptions() con
     stemforge::SeparationOptions options;
     for (int i = 0; i < stemforge::stemCount; ++i)
         options.exportStem[static_cast<size_t>(i)] = stemButtons[static_cast<size_t>(i)].getToggleState();
+
     options.exportCleanSample = cleanButton.getToggleState();
     options.outputDirectory = outputDirectory;
     return options;
@@ -273,15 +305,16 @@ void StemForgeAudioProcessorEditor::startSeparation()
 {
     if (! inputFile.existsAsFile())
     {
-        statusLabel.setText("Сначала загрузи аудиофайл.", juce::dontSendNotification);
+        statusLabel.setText(ru(L"\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u0438 \u0430\u0443\u0434\u0438\u043e\u0444\u0430\u0439\u043b."), juce::dontSendNotification);
         return;
     }
 
     auto options = currentOptions();
     const bool anyStem = std::any_of(options.exportStem.begin(), options.exportStem.end(), [](bool v) { return v; });
+
     if (! anyStem && ! options.exportCleanSample)
     {
-        statusLabel.setText("Выбери хотя бы один стем или Clean Sample.", juce::dontSendNotification);
+        statusLabel.setText(ru(L"\u0412\u044b\u0431\u0435\u0440\u0438 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u0438\u043d \u0441\u0442\u0435\u043c \u0438\u043b\u0438 Clean Sample."), juce::dontSendNotification);
         return;
     }
 
@@ -314,6 +347,8 @@ void StemForgeAudioProcessorEditor::timerCallback()
             statusLabel.setColour(juce::Label::textColourId, success);
         }
         else
+        {
             statusLabel.setColour(juce::Label::textColourId, muted);
+        }
     }
 }
