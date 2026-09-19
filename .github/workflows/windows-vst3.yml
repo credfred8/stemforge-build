@@ -24,6 +24,22 @@ jobs:
           path: deps
           key: stemforge-deps-juce902-ort1290-demucs6s-v1
 
+      - name: Verify source is ASCII-only
+        shell: powershell
+        run: |
+          $bad = @()
+          Get-ChildItem Source -Recurse -File -Include *.cpp,*.h | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            if ($bytes | Where-Object { $_ -gt 127 } | Select-Object -First 1) {
+              $bad += $_.FullName
+            }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host "Non-ASCII source files found:"
+            $bad | ForEach-Object { Write-Host $_ }
+            throw "Raw non-ASCII text is forbidden in Source/. Use Unicode escapes/wide strings."
+          }
+
       - name: Bootstrap dependencies
         shell: powershell
         run: .\scripts\bootstrap.ps1
@@ -126,16 +142,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item -Path "$env:VST3_PATH" -Destination "dist\StemForge.vst3" -Recurse -Force
-          Compress-Archive -Path "dist\StemForge.vst3" -DestinationPath "StemForge-Windows-x64-VST3.zip" -Force
-          $sha = (Get-FileHash -Algorithm SHA256 "StemForge-Windows-x64-VST3.zip").Hash.ToLowerInvariant()
-          Set-Content -Path "StemForge-Windows-x64-VST3.zip.sha256" -Value "$sha  StemForge-Windows-x64-VST3.zip" -Encoding ascii
+          Compress-Archive -Path "dist\StemForge.vst3" -DestinationPath "StemForge-v0.2.1-Windows-x64-VST3.zip" -Force
+          $sha = (Get-FileHash -Algorithm SHA256 "StemForge-v0.2.1-Windows-x64-VST3.zip").Hash.ToLowerInvariant()
+          Set-Content -Path "StemForge-v0.2.1-Windows-x64-VST3.zip.sha256" -Value "$sha  StemForge-v0.2.1-Windows-x64-VST3.zip" -Encoding ascii
           Write-Host "ZIP SHA256: $sha"
 
       - name: Upload ready VST3
         uses: actions/upload-artifact@v4
         with:
-          name: StemForge-Windows-x64-VST3
+          name: StemForge-v0.2.1-Windows-x64-VST3
           path: |
-            StemForge-Windows-x64-VST3.zip
-            StemForge-Windows-x64-VST3.zip.sha256
+            StemForge-v0.2.1-Windows-x64-VST3.zip
+            StemForge-v0.2.1-Windows-x64-VST3.zip.sha256
           if-no-files-found: error
