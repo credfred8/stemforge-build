@@ -224,9 +224,11 @@ namespace stemforge
         options.SetInterOpNumThreads(1);
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
        #if JUCE_WINDOWS
-        return std::make_unique<Ort::Session>(*env, modelFile.getFullPathName().toWideCharPointer().getAddress(), options);
+        const auto modelPath = modelFile.getFullPathName().toStdWString();
+        return std::make_unique<Ort::Session>(*env, modelPath.c_str(), options);
        #else
-        return std::make_unique<Ort::Session>(*env, modelFile.getFullPathName().toRawUTF8(), options);
+        const auto modelPath = modelFile.getFullPathName().toStdString();
+        return std::make_unique<Ort::Session>(*env, modelPath.c_str(), options);
        #endif
     }
 
@@ -379,7 +381,9 @@ namespace stemforge
 
         std::vector<float> weight(static_cast<size_t>(total), 0.0f);
         const auto window = makeWindow();
-        const int nChunks = std::max(1, (total + strideSamples - 1) / strideSamples);
+        const int nChunks = total <= segmentSamples
+            ? 1
+            : 1 + (total - segmentSamples + strideSamples - 1) / strideSamples;
         std::vector<float> inputTensor(static_cast<size_t>(2 * segmentSamples), 0.0f);
         const std::array<int64_t, 3> inputShape { 1, 2, segmentSamples };
         auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
@@ -432,7 +436,12 @@ namespace stemforge
             const float* output = result.front().GetTensorData<float>();
             for (int i = 0; i < chunkLength; ++i)
             {
-                const float w = window[static_cast<size_t>(i)];
+                float w = window[static_cast<size_t>(i)];
+                if (start == 0 && i < overlapSamples)
+                    w = 1.0f;
+                if (end == total && i >= std::max(0, chunkLength - overlapSamples))
+                    w = 1.0f;
+
                 weight[static_cast<size_t>(start + i)] += w;
                 for (int s = 0; s < stemCount; ++s)
                     for (int ch = 0; ch < 2; ++ch)
@@ -468,14 +477,16 @@ namespace stemforge
             return false;
 
         juce::WavAudioFormat wav;
-        auto* rawStream = stream.release();
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wav.createWriterFor(rawStream, modelSampleRate, 2, 32, {}, 0));
+        const auto writerOptions = juce::AudioFormatWriterOptions()
+            .withSampleRate(modelSampleRate)
+            .withChannelLayout(juce::AudioChannelSet::stereo())
+            .withBitsPerSample(32)
+            .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint);
+
+        auto writer = wav.createWriterFor(stream, writerOptions);
         if (writer == nullptr)
-        {
-            delete rawStream;
             return false;
-        }
+
         return writer->writeFromAudioSampleBuffer(audio, 0, audio.getNumSamples());
     }
 
