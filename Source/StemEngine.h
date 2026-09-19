@@ -51,7 +51,7 @@ namespace stemforge
         std::unique_ptr<Ort::Session> createSession(const juce::File& modelFile);
 
         mutable std::mutex stateMutex;
-        juce::String status { "Готов. Перетащи WAV/MP3/FLAC/AIFF/OGG в окно." };
+        juce::String status { L"\u0413\u043e\u0442\u043e\u0432. \u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438 WAV/MP3/FLAC/AIFF/OGG \u0432 \u043e\u043a\u043d\u043e." };
         juce::String lastError;
         std::vector<juce::File> lastOutputs;
         juce::File pendingInput;
