@@ -53,6 +53,12 @@ jobs:
           cmake --build build --config Release --target StemForge_VST3 --parallel
           if ($LASTEXITCODE -ne 0) { throw "StemForge VST3 build failed." }
 
+      - name: Build StemEngine smoke executable
+        shell: powershell
+        run: |
+          cmake --build build --config Release --target StemForgeEngineSmoke --parallel
+          if ($LASTEXITCODE -ne 0) { throw "StemForge engine smoke build failed." }
+
       - name: Locate and verify bundle
         shell: powershell
         run: |
@@ -87,6 +93,18 @@ jobs:
             throw "StemForge has a hard onnxruntime.dll import."
           }
 
+      - name: Run real ONNX separation smoke test
+        shell: powershell
+        run: |
+          $smoke = Get-ChildItem -Path build -Recurse -File -Filter StemForgeEngineSmoke.exe | Select-Object -First 1
+          if (-not $smoke) { throw "StemForgeEngineSmoke.exe not found." }
+
+          $runtime = Join-Path $pwd "deps\onnxruntime\lib\onnxruntime.dll"
+          $model = Join-Path $pwd "deps\models\htdemucs_6s_fp16weights.onnx"
+
+          & $smoke.FullName $runtime $model
+          if ($LASTEXITCODE -ne 0) { throw "Real StemEngine separation smoke test failed with exit code $LASTEXITCODE" }
+
       - name: Download pluginval
         shell: powershell
         run: |
@@ -99,8 +117,9 @@ jobs:
       - name: Validate VST3 at host-compatibility strictness
         shell: powershell
         run: |
-          & "$env:PLUGINVAL_EXE" --strictness-level 5 "$env:VST3_PATH"
-          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+          $quotedPlugin = '"' + $env:VST3_PATH + '"'
+          $process = Start-Process -FilePath "$env:PLUGINVAL_EXE" -ArgumentList "--strictness-level 5 $quotedPlugin" -NoNewWindow -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "pluginval failed with exit code $($process.ExitCode)" }
 
       - name: Package copy-only VST3
         shell: powershell
