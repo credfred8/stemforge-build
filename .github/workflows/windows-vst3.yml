@@ -1,0 +1,112 @@
+name: Build StemForge Windows x64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-validate:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bootstrap dependencies
+        shell: powershell
+        run: .\scripts\bootstrap.ps1
+
+      - name: Test overlap-add
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul
+          cl /nologo /EHsc /std:c++17 tests\overlap_add_test.cpp /Fe:overlap_add_test.exe
+          overlap_add_test.exe
+
+      - name: Configure VS 2022 x64
+        shell: powershell
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DJUCE_ROOT="$pwd\deps\JUCE" `
+            -DORT_ROOT="$pwd\deps\onnxruntime" `
+            -DSTEMFORGE_MODEL="$pwd\deps\models\htdemucs_6s_fp16weights.onnx"
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
+
+      - name: Build Release VST3
+        shell: powershell
+        run: |
+          cmake --build build --config Release --target StemForge_VST3 --parallel
+          if ($LASTEXITCODE -ne 0) { throw "StemForge VST3 build failed." }
+
+      - name: Locate and verify bundle
+        shell: powershell
+        run: |
+          $bundle = Get-ChildItem -Path build -Recurse -Directory -Filter StemForge.vst3 | Select-Object -First 1
+          if (-not $bundle) { throw "StemForge.vst3 bundle not found." }
+
+          $binary = Get-ChildItem -Path (Join-Path $bundle.FullName "Contents\x86_64-win") -File -Filter StemForge.vst3 | Select-Object -First 1
+          if (-not $binary) { throw "StemForge VST3 module binary not found." }
+
+          $runtime = Join-Path $bundle.FullName "Contents\Resources\runtime\onnxruntime.dll"
+          $model   = Join-Path $bundle.FullName "Contents\Resources\models\htdemucs_6s_fp16weights.onnx"
+          if (-not (Test-Path $runtime)) { throw "Bundled onnxruntime.dll is missing." }
+          if (-not (Test-Path $model))   { throw "Bundled HT-Demucs model is missing." }
+
+          $expected = "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869"
+          $actual = (Get-FileHash -Algorithm SHA256 $model).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Bundled model SHA256 mismatch: $actual" }
+
+          "VST3_PATH=$($bundle.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VST3_BINARY=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify no hard ONNX DLL import
+        shell: powershell
+        run: |
+          $vswhere = "$env:ProgramFiles(x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -File -Filter dumpbin.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe not found." }
+          $dump = (& $dumpbin.FullName /DEPENDENTS "$env:VST3_BINARY") | Out-String
+          Write-Host $dump
+          if ($dump -match '(?im)^\s*onnxruntime\.dll\s*$') {
+            throw "StemForge has a hard onnxruntime.dll import."
+          }
+
+      - name: Download pluginval
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip" -OutFile "pluginval.zip"
+          Expand-Archive -Path "pluginval.zip" -DestinationPath "pluginval" -Force
+          $exe = Get-ChildItem -Path pluginval -Recurse -File -Filter pluginval.exe | Select-Object -First 1
+          if (-not $exe) { throw "pluginval.exe not found." }
+          "PLUGINVAL_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Validate VST3 at host-compatibility strictness
+        shell: powershell
+        run: |
+          & "$env:PLUGINVAL_EXE" --strictness-level 5 "$env:VST3_PATH"
+          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+
+      - name: Package copy-only VST3
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Path "$env:VST3_PATH" -Destination "dist\StemForge.vst3" -Recurse -Force
+          Compress-Archive -Path "dist\StemForge.vst3" -DestinationPath "StemForge-Windows-x64-VST3.zip" -Force
+          $sha = (Get-FileHash -Algorithm SHA256 "StemForge-Windows-x64-VST3.zip").Hash.ToLowerInvariant()
+          Set-Content -Path "StemForge-Windows-x64-VST3.zip.sha256" -Value "$sha  StemForge-Windows-x64-VST3.zip" -Encoding ascii
+          Write-Host "ZIP SHA256: $sha"
+
+      - name: Upload ready VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: StemForge-Windows-x64-VST3
+          path: |
+            StemForge-Windows-x64-VST3.zip
+            StemForge-Windows-x64-VST3.zip.sha256
+          if-no-files-found: error
