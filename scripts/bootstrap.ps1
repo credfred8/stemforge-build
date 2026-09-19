@@ -7,7 +7,8 @@ New-Item -ItemType Directory -Force -Path $Deps, $Tmp, (Join-Path $Deps "models"
 function Download-File([string]$Url, [string]$Out) {
     if (Test-Path $Out) { return }
     Write-Host "Downloading $Url"
-    Invoke-WebRequest -Uri $Url -OutFile $Out -UseBasicParsing
+    & curl.exe -L --fail --retry 4 --retry-delay 2 --connect-timeout 30 -o $Out $Url
+    if ($LASTEXITCODE -ne 0) { throw "Download failed: $Url" }
 }
 
 $JuceDir = Join-Path $Deps "JUCE"
