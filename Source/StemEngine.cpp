@@ -68,7 +68,7 @@ namespace stemforge
             pendingOptions = options;
             lastError.clear();
             lastOutputs.clear();
-            status = "Подготовка...";
+            status = juce::String(L"\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0430...");
         }
 
         progress.store(0.0f);
@@ -76,7 +76,7 @@ namespace stemforge
         if (! startThread(juce::Thread::Priority::normal))
         {
             busy.store(false);
-            fail("Не удалось запустить worker thread.");
+            fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c worker thread."));
             return false;
         }
         return true;
@@ -112,7 +112,7 @@ namespace stemforge
     {
         const std::scoped_lock lock(stateMutex);
         lastError = text;
-        status = "Ошибка: " + text;
+        status = juce::String(L"\u041e\u0448\u0438\u0431\u043a\u0430: ") + text;
     }
 
     juce::File StemEngine::findModelFile() const
@@ -164,14 +164,14 @@ namespace stemforge
         const auto runtimeFile = findRuntimeFile();
         if (! runtimeFile.existsAsFile())
         {
-            fail("Не найден ONNX Runtime: " + runtimeFile.getFullPathName());
+            fail(juce::String(L"\u041d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d ONNX Runtime: ") + runtimeFile.getFullPathName());
             return false;
         }
 
         auto library = std::make_unique<juce::DynamicLibrary>();
         if (! library->open(runtimeFile.getFullPathName()))
         {
-            fail("Не удалось загрузить ONNX Runtime: " + runtimeFile.getFullPathName());
+            fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c ONNX Runtime: ") + runtimeFile.getFullPathName());
             return false;
         }
 
@@ -179,7 +179,7 @@ namespace stemforge
         auto* symbol = library->getFunction("OrtGetApiBase");
         if (symbol == nullptr)
         {
-            fail("ONNX Runtime не экспортирует OrtGetApiBase.");
+            fail(juce::String(L"ONNX Runtime \u043d\u0435 \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u0435\u0442 OrtGetApiBase."));
             return false;
         }
 
@@ -187,14 +187,14 @@ namespace stemforge
         const auto* apiBase = getApiBase();
         if (apiBase == nullptr)
         {
-            fail("ONNX Runtime вернул пустой API base.");
+            fail(juce::String(L"ONNX Runtime \u0432\u0435\u0440\u043d\u0443\u043b \u043f\u0443\u0441\u0442\u043e\u0439 API base."));
             return false;
         }
 
         const auto* api = apiBase->GetApi(ORT_API_VERSION);
         if (api == nullptr)
         {
-            fail("Версия ONNX Runtime API несовместима с StemForge.");
+            fail(juce::String(L"\u0412\u0435\u0440\u0441\u0438\u044f ONNX Runtime API \u043d\u0435\u0441\u043e\u0432\u043c\u0435\u0441\u0442\u0438\u043c\u0430 \u0441 StemForge."));
             return false;
         }
 
@@ -207,7 +207,7 @@ namespace stemforge
         }
         catch (const Ort::Exception& e)
         {
-            fail("Не удалось инициализировать ONNX Runtime: " + juce::String(e.what()));
+            fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u0442\u044c ONNX Runtime: ") + juce::String(e.what()));
             return false;
         }
         return true;
@@ -248,22 +248,22 @@ namespace stemforge
             if (! threadShouldExit() && getLastError().isEmpty())
             {
                 progress.store(1.0f);
-                setStatus("Готово. Стемы сохранены.");
+                setStatus(juce::String(L"\u0413\u043e\u0442\u043e\u0432\u043e. \u0421\u0442\u0435\u043c\u044b \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b."));
             }
             else if (threadShouldExit() && getLastError().isEmpty())
-                setStatus("Остановлено.");
+                setStatus(juce::String(L"\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u043e."));
         };
 
         const auto model = findModelFile();
         if (! model.existsAsFile())
         {
-            fail("Не найдена модель " + model.getFullPathName());
+            fail(juce::String(L"\u041d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430 \u043c\u043e\u0434\u0435\u043b\u044c ") + model.getFullPathName());
             finish();
             return;
         }
 
         juce::AudioBuffer<float> mix;
-        setStatus("Читаю аудио и привожу к 44.1 кГц stereo...");
+        setStatus(juce::String(L"\u0427\u0438\u0442\u0430\u044e \u0430\u0443\u0434\u0438\u043e \u0438 \u043f\u0440\u0438\u0432\u043e\u0436\u0443 \u043a 44.1 \u043a\u0413\u0446 stereo..."));
         if (! loadAndResample(input, mix)) { finish(); return; }
         if (threadShouldExit()) { finish(); return; }
 
@@ -272,7 +272,7 @@ namespace stemforge
         if (! separate(mix, stems)) { finish(); return; }
         if (threadShouldExit()) { finish(); return; }
 
-        setStatus("Экспортирую 32-bit float WAV...");
+        setStatus(juce::String(L"\u042d\u043a\u0441\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u044e 32-bit float WAV..."));
         progress.store(0.95f);
         if (! writeOutputs(mix, stems, input, options)) { finish(); return; }
         finish();
@@ -285,12 +285,12 @@ namespace stemforge
         std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
         if (reader == nullptr)
         {
-            fail("Формат файла не прочитан: " + file.getFileName());
+            fail(juce::String(L"\u0424\u043e\u0440\u043c\u0430\u0442 \u0444\u0430\u0439\u043b\u0430 \u043d\u0435 \u043f\u0440\u043e\u0447\u0438\u0442\u0430\u043d: ") + file.getFileName());
             return false;
         }
         if (reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0)
         {
-            fail("Аудиофайл пустой или повреждён.");
+            fail(juce::String(L"\u0410\u0443\u0434\u0438\u043e\u0444\u0430\u0439\u043b \u043f\u0443\u0441\u0442\u043e\u0439 \u0438\u043b\u0438 \u043f\u043e\u0432\u0440\u0435\u0436\u0434\u0451\u043d."));
             return false;
         }
 
@@ -301,7 +301,7 @@ namespace stemforge
                                                             * modelSampleRate / sourceRate));
         if (outputLength <= 0)
         {
-            fail("Не удалось определить длину аудио.");
+            fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0438\u0442\u044c \u0434\u043b\u0438\u043d\u0443 \u0430\u0443\u0434\u0438\u043e."));
             return false;
         }
 
@@ -350,7 +350,7 @@ namespace stemforge
                               std::vector<juce::AudioBuffer<float>>& stems)
     {
         const auto model = findModelFile();
-        setStatus("Загружаю HT-Demucs 6-stem...");
+        setStatus(juce::String(L"\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u044e HT-Demucs 6-stem..."));
         if (! ensureRuntimeLoaded())
             return false;
 
@@ -360,7 +360,7 @@ namespace stemforge
             session = createSession(model);
             if (session == nullptr)
             {
-                fail("ONNX Runtime не инициализирован.");
+                fail(juce::String(L"ONNX Runtime \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d."));
                 return false;
             }
         }
@@ -416,20 +416,20 @@ namespace stemforge
             }
             catch (const Ort::Exception& e)
             {
-                fail("Ошибка модели: " + juce::String(e.what()));
+                fail(juce::String(L"\u041e\u0448\u0438\u0431\u043a\u0430 \u043c\u043e\u0434\u0435\u043b\u0438: ") + juce::String(e.what()));
                 return false;
             }
 
             if (result.empty() || ! result.front().IsTensor())
             {
-                fail("Модель не вернула tensor stems.");
+                fail(juce::String(L"\u041c\u043e\u0434\u0435\u043b\u044c \u043d\u0435 \u0432\u0435\u0440\u043d\u0443\u043b\u0430 tensor stems."));
                 return false;
             }
 
             const auto shape = result.front().GetTensorTypeAndShapeInfo().GetShape();
             if (shape.size() != 4 || shape[1] != stemCount || shape[2] != 2 || shape[3] != segmentSamples)
             {
-                fail("Неожиданная форма выхода ONNX-модели.");
+                fail(juce::String(L"\u041d\u0435\u043e\u0436\u0438\u0434\u0430\u043d\u043d\u0430\u044f \u0444\u043e\u0440\u043c\u0430 \u0432\u044b\u0445\u043e\u0434\u0430 ONNX-\u043c\u043e\u0434\u0435\u043b\u0438."));
                 return false;
             }
 
@@ -454,7 +454,7 @@ namespace stemforge
 
             const float fraction = static_cast<float>(chunkIndex + 1) / static_cast<float>(nChunks);
             progress.store(0.05f + 0.88f * fraction);
-            setStatus("Разделение HQ: блок " + juce::String(chunkIndex + 1) + " / " + juce::String(nChunks));
+            setStatus(juce::String(L"\u0420\u0430\u0437\u0434\u0435\u043b\u0435\u043d\u0438\u0435 HQ: \u0431\u043b\u043e\u043a ") + juce::String(chunkIndex + 1) + " / " + juce::String(nChunks));
         }
 
         for (int i = 0; i < total; ++i)
@@ -502,7 +502,7 @@ namespace stemforge
 
         if (outputDir.createDirectory().failed())
         {
-            fail("Не удалось создать папку: " + outputDir.getFullPathName());
+            fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u0430\u043f\u043a\u0443: ") + outputDir.getFullPathName());
             return false;
         }
 
@@ -516,7 +516,7 @@ namespace stemforge
             const auto target = outputDir.getChildFile(base + "_" + stemNames[static_cast<size_t>(s)] + ".wav");
             if (! writeFloatWav(target, stems[static_cast<size_t>(s)]))
             {
-                fail("Не удалось записать " + target.getFileName());
+                fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c ") + target.getFileName());
                 return false;
             }
             writtenFiles.push_back(target);
@@ -549,7 +549,7 @@ namespace stemforge
             const auto target = outputDir.getChildFile(base + "_" + suffix + ".wav");
             if (! writeFloatWav(target, clean))
             {
-                fail("Не удалось записать " + target.getFileName());
+                fail(juce::String(L"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c ") + target.getFileName());
                 return false;
             }
             writtenFiles.push_back(target);
@@ -557,7 +557,7 @@ namespace stemforge
 
         if (writtenFiles.empty())
         {
-            fail("Не выбран ни один результат для экспорта.");
+            fail(juce::String(L"\u041d\u0435 \u0432\u044b\u0431\u0440\u0430\u043d \u043d\u0438 \u043e\u0434\u0438\u043d \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 \u0434\u043b\u044f \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0430."));
             return false;
         }
 
