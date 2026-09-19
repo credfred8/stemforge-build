@@ -86,3 +86,37 @@ add_custom_command(TARGET StemForge_VST3 POST_BUILD
         "$<TARGET_FILE_DIR:StemForge_VST3>/../Resources/models/htdemucs_6s_fp16weights.onnx"
     VERBATIM
 )
+
+
+# End-to-end CI smoke test for the same separation engine used by the plugin.
+juce_add_console_app(StemForgeEngineSmoke
+    PRODUCT_NAME "StemForgeEngineSmoke"
+)
+
+juce_generate_juce_header(StemForgeEngineSmoke)
+
+target_sources(StemForgeEngineSmoke PRIVATE
+    tests/engine_smoke.cpp
+    Source/StemEngine.cpp
+    Source/StemEngine.h
+    Source/StemTypes.h
+)
+
+target_include_directories(StemForgeEngineSmoke PRIVATE
+    "${ORT_ROOT}/include"
+)
+
+target_compile_definitions(StemForgeEngineSmoke PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ORT_API_MANUAL_INIT=1
+)
+
+target_link_libraries(StemForgeEngineSmoke PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+)
+
+if(MSVC)
+    target_compile_options(StemForgeEngineSmoke PRIVATE /W4 /permissive- /EHsc /utf-8)
+endif()
