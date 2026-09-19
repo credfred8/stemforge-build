@@ -17,7 +17,6 @@ StemForgeAudioProcessorEditor::ForgeLookAndFeel::ForgeLookAndFeel()
     setColour(juce::ToggleButton::textColourId, text);
     setColour(juce::ProgressBar::backgroundColourId, juce::Colour::fromRGB(40, 44, 50));
     setColour(juce::ProgressBar::foregroundColourId, accent);
-    setColour(juce::ProgressBar::textColourId, text);
 }
 
 void StemForgeAudioProcessorEditor::ForgeLookAndFeel::drawButtonBackground(
