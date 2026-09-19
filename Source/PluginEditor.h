@@ -47,13 +47,13 @@ private:
     juce::Label statusLabel;
     juce::Label hintLabel;
 
-    juce::TextButton loadButton { "Загрузить аудио" };
-    juce::TextButton outputButton { "Папка экспорта" };
-    juce::TextButton separateButton { "РАЗДЕЛИТЬ HQ" };
-    juce::TextButton openFolderButton { "Открыть результат" };
+    juce::TextButton loadButton;
+    juce::TextButton outputButton;
+    juce::TextButton separateButton;
+    juce::TextButton openFolderButton;
 
     std::array<juce::ToggleButton, stemforge::stemCount> stemButtons;
-    juce::ToggleButton cleanButton { "Clean Sample: убрать отмеченные стемы" };
+    juce::ToggleButton cleanButton;
 
     double progressValue = 0.0;
     juce::ProgressBar progressBar { progressValue };
