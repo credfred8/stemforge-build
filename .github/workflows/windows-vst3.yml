@@ -23,11 +23,14 @@ jobs:
         run: .\scripts\bootstrap.ps1
 
       - name: Test overlap-add
-        shell: cmd
+        shell: powershell
         run: |
-          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul
-          cl /nologo /EHsc /std:c++17 tests\overlap_add_test.cpp /Fe:overlap_add_test.exe
-          overlap_add_test.exe
+          $vswhere = "$env:ProgramFiles(x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual Studio with C++ tools not found." }
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          cmd /c "call `"$vcvars`" && cl /nologo /EHsc /std:c++17 tests\overlap_add_test.cpp /Fe:overlap_add_test.exe && overlap_add_test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Overlap-add test failed." }
 
       - name: Configure VS 2022 x64
         shell: powershell
