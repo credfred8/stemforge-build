@@ -224,11 +224,11 @@ namespace stemforge
         options.SetInterOpNumThreads(1);
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
        #if JUCE_WINDOWS
-        const auto modelPath = modelFile.getFullPathName().toStdWString();
-        return std::make_unique<Ort::Session>(*env, modelPath.c_str(), options);
+        const auto modelPath = modelFile.getFullPathName();
+        return std::make_unique<Ort::Session>(*env, modelPath.toWideCharPointer(), options);
        #else
-        const auto modelPath = modelFile.getFullPathName().toStdString();
-        return std::make_unique<Ort::Session>(*env, modelPath.c_str(), options);
+        const auto modelPath = modelFile.getFullPathName();
+        return std::make_unique<Ort::Session>(*env, modelPath.toRawUTF8(), options);
        #endif
     }
 
@@ -472,7 +472,7 @@ namespace stemforge
     bool StemEngine::writeFloatWav(const juce::File& file, const juce::AudioBuffer<float>& audio) const
     {
         file.deleteFile();
-        auto stream = file.createOutputStream();
+        std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
         if (stream == nullptr)
             return false;
 
