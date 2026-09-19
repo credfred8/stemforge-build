@@ -2,6 +2,7 @@ name: Build StemForge Windows x64
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [ main ]
 
