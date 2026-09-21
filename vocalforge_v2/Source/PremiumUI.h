@@ -165,7 +165,6 @@ namespace VocalForgeUI
 
             addAndMakeVisible (power);
             addAndMakeVisible (help);
-            setTooltip (description);
         }
 
         juce::ToggleButton& getPowerButton() { return power; }
