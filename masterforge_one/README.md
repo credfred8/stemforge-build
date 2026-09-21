@@ -38,3 +38,5 @@ The VST3 bundle is generated under the JUCE artifacts directory. Run `MasterForg
 - The code is an original implementation inspired by common mastering workflows. It does not embed or clone proprietary iZotope, FabFilter, UAD, Waves or other vendor code.
 - `LUFS EST` in v1 is a fast loudness estimate for workflow feedback, not a standards-certified EBU R128/ITU BS.1770 integrated meter.
 - Oversampled final processing is 4x to reduce aliasing and improve inter-sample peak handling.
+
+CI validates the DSP smoke test before packaging the Windows VST3 artifact.
