@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MasterForgeOne VERSION 1.0.0 LANGUAGES C CXX)
+project(MasterForgeOne VERSION 2.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,7 +18,7 @@ juce_add_plugin(MasterForgeOne
   BUNDLE_ID "com.goldenlightaudio.masterforgeone"
   PLUGIN_MANUFACTURER_CODE GlAu
   PLUGIN_CODE Mf01
-  FORMATS VST3
+  FORMATS VST3 Standalone
   PRODUCT_NAME "MasterForge ONE"
   COPY_PLUGIN_AFTER_BUILD FALSE
   IS_SYNTH FALSE

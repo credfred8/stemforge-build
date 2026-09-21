@@ -1,4 +1,4 @@
-name: Build MasterForge ONE VST3
+name: Build MasterForge ONE v2 PRO
 
 on:
   push:
@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows-vst3:
+  build-windows-x64:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -42,19 +42,43 @@ jobs:
         shell: pwsh
         run: cmake --build masterforge_one/build --config Release --target MasterForgeOne_VST3 --parallel 2
 
-      - name: Stage VST3 bundle
+      - name: Build standalone
+        shell: pwsh
+        run: cmake --build masterforge_one/build --config Release --target MasterForgeOne_Standalone --parallel 2
+
+      - name: Stage and verify Windows x64 package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path masterforge_one/dist | Out-Null
+          $dist = "masterforge_one/dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
           $vst3 = Get-ChildItem -Path masterforge_one/build -Recurse -Directory -Filter "MasterForge ONE.vst3" | Select-Object -First 1
           if (-not $vst3) { throw "MasterForge ONE.vst3 bundle not found" }
-          Copy-Item -Recurse -Force $vst3.FullName "masterforge_one/dist/MasterForge ONE.vst3"
-          Copy-Item -Force "masterforge_one/README.md" "masterforge_one/dist/README.md"
+          Copy-Item -Recurse -Force $vst3.FullName "$dist/MasterForge ONE.vst3"
 
-      - name: Upload Windows VST3
+          $exe = Get-ChildItem -Path masterforge_one/build -Recurse -File -Filter "MasterForge ONE.exe" | Select-Object -First 1
+          if (-not $exe) { throw "MasterForge ONE.exe not found" }
+          Copy-Item -Force $exe.FullName "$dist/MasterForge ONE.exe"
+
+          Copy-Item -Force "masterforge_one/README.md" "$dist/README.md"
+
+          $vst3Binary = Get-ChildItem -Path "$dist/MasterForge ONE.vst3" -Recurse -File |
+            Where-Object { $_.Name -eq "MasterForge ONE.vst3" } |
+            Select-Object -First 1
+
+          if (-not $vst3Binary) { throw "VST3 x64 binary inside bundle not found" }
+          if ($vst3Binary.Length -lt 100000) { throw "VST3 binary is unexpectedly small" }
+
+          $standalone = Get-Item "$dist/MasterForge ONE.exe"
+          if ($standalone.Length -lt 100000) { throw "Standalone EXE is unexpectedly small" }
+
+          Write-Host "Verified VST3 binary: $($vst3Binary.FullName) $($vst3Binary.Length) bytes"
+          Write-Host "Verified standalone: $($standalone.FullName) $($standalone.Length) bytes"
+
+      - name: Upload MasterForge ONE v2 PRO
         uses: actions/upload-artifact@v4
         with:
-          name: MasterForge-ONE-Windows-x64-VST3
+          name: MasterForge-ONE-v2-PRO-Windows-x64
           path: masterforge_one/dist
           if-no-files-found: error
           compression-level: 9

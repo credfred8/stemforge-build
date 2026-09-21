@@ -2,32 +2,195 @@
 
 namespace
 {
-juce::Colour bg() { return juce::Colour (0xff070a0f); }
-juce::Colour panel() { return juce::Colour (0xff101722); }
-juce::Colour panel2() { return juce::Colour (0xff151e2b); }
-juce::Colour line() { return juce::Colour (0xff263346); }
-juce::Colour cyan() { return juce::Colour (0xff35d7ff); }
-juce::Colour violet() { return juce::Colour (0xff9b87ff); }
-juce::Colour text() { return juce::Colour (0xffe7eef8); }
-juce::Colour muted() { return juce::Colour (0xff8290a4); }
+juce::Colour bg()       { return juce::Colour (0xff070b10); }
+juce::Colour header()   { return juce::Colour (0xff0b1118); }
+juce::Colour panel()    { return juce::Colour (0xff101821); }
+juce::Colour panel2()   { return juce::Colour (0xff151f2a); }
+juce::Colour panel3()   { return juce::Colour (0xff1a2632); }
+juce::Colour line()     { return juce::Colour (0xff2a3948); }
+juce::Colour accent()   { return juce::Colour (0xff40d8ff); }
+juce::Colour violet()   { return juce::Colour (0xff9f8cff); }
+juce::Colour green()    { return juce::Colour (0xff72e3a6); }
+juce::Colour amber()    { return juce::Colour (0xffffc15b); }
+juce::Colour red()      { return juce::Colour (0xffff6b72); }
+juce::Colour text()     { return juce::Colour (0xffedf5ff); }
+juce::Colour muted()    { return juce::Colour (0xff8fa0b3); }
+juce::Colour dim()      { return juce::Colour (0xff526172); }
+
+float normDb (float db)
+{
+    return juce::jlimit (0.0f, 1.0f, juce::jmap (db, -60.0f, 0.0f, 0.0f, 1.0f));
+}
 }
 
-void MasterForgeAudioProcessorEditor::SpectrumPanel::paint (juce::Graphics& g)
+MasterForgeAudioProcessorEditor::ForgeLookAndFeel::ForgeLookAndFeel()
+{
+    setColour (juce::ComboBox::backgroundColourId, panel2());
+    setColour (juce::ComboBox::textColourId, text());
+    setColour (juce::ComboBox::outlineColourId, line());
+    setColour (juce::PopupMenu::backgroundColourId, panel2());
+    setColour (juce::PopupMenu::textColourId, text());
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xff243648));
+    setColour (juce::PopupMenu::highlightedTextColourId, text());
+}
+
+void MasterForgeAudioProcessorEditor::ForgeLookAndFeel::drawRotarySlider (
+    juce::Graphics& g, int x, int y, int width, int height,
+    float sliderPos, float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider)
+{
+    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height);
+    const float size = juce::jmin (bounds.getWidth(), bounds.getHeight()) - 18.0f;
+    auto knob = juce::Rectangle<float> (size, size).withCentre (bounds.getCentre());
+    knob.translate (0.0f, -3.0f);
+
+    const float radius = knob.getWidth() * 0.5f;
+    const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+    const float arcRadius = radius - 2.5f;
+
+    juce::Path track;
+    track.addCentredArc (knob.getCentreX(), knob.getCentreY(), arcRadius, arcRadius,
+                         0.0f, rotaryStartAngle, rotaryEndAngle, true);
+    g.setColour (juce::Colour (0xff263543));
+    g.strokePath (track, juce::PathStrokeType (4.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    juce::Path valueArc;
+    valueArc.addCentredArc (knob.getCentreX(), knob.getCentreY(), arcRadius, arcRadius,
+                            0.0f, rotaryStartAngle, angle, true);
+    g.setColour (slider.isEnabled() ? accent() : dim());
+    g.strokePath (valueArc, juce::PathStrokeType (4.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    const auto inner = knob.reduced (8.0f);
+    juce::ColourGradient grad (juce::Colour (0xff374654), inner.getX(), inner.getY(),
+                               juce::Colour (0xff111922), inner.getRight(), inner.getBottom(), false);
+    grad.addColour (0.52, juce::Colour (0xff202c37));
+    g.setGradientFill (grad);
+    g.fillEllipse (inner);
+
+    g.setColour (juce::Colour (0xff4a5c6b));
+    g.drawEllipse (inner, 1.0f);
+
+    const auto c = inner.getCentre();
+    const float pointerLen = inner.getWidth() * 0.34f;
+    const float pointerThickness = 2.2f;
+    juce::Path p;
+    p.addRoundedRectangle (-pointerThickness * 0.5f, -pointerLen + 3.0f,
+                           pointerThickness, pointerLen, 1.0f);
+    p.applyTransform (juce::AffineTransform::rotation (angle).translated (c.x, c.y));
+    g.setColour (slider.isEnabled() ? text() : dim());
+    g.fillPath (p);
+
+    const float dotR = 2.3f;
+    const auto dotX = c.x + std::sin (angle) * (radius - 6.0f);
+    const auto dotY = c.y - std::cos (angle) * (radius - 6.0f);
+    g.setColour (accent());
+    g.fillEllipse (dotX - dotR, dotY - dotR, dotR * 2.0f, dotR * 2.0f);
+}
+
+void MasterForgeAudioProcessorEditor::ForgeLookAndFeel::drawToggleButton (
+    juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool down)
+{
+    auto bounds = button.getLocalBounds().toFloat();
+    const bool on = button.getToggleState();
+
+    auto switchArea = bounds;
+    if (button.getButtonText().isNotEmpty())
+        switchArea = bounds.removeFromLeft (38.0f);
+
+    const float h = juce::jmin (20.0f, switchArea.getHeight() - 2.0f);
+    const float w = juce::jmin (34.0f, switchArea.getWidth() - 2.0f);
+    auto pill = juce::Rectangle<float> (w, h).withCentre (switchArea.getCentre());
+
+    g.setColour (on ? accent().withAlpha (0.32f) : juce::Colour (0xff202d38));
+    g.fillRoundedRectangle (pill, h * 0.5f);
+    g.setColour (on ? accent() : line());
+    g.drawRoundedRectangle (pill, h * 0.5f, 1.0f);
+
+    const float dot = h - 6.0f;
+    const float dx = on ? pill.getRight() - dot - 3.0f : pill.getX() + 3.0f;
+    g.setColour (on ? accent() : muted());
+    g.fillEllipse (dx, pill.getY() + 3.0f, dot, dot);
+
+    if (button.getButtonText().isNotEmpty())
+    {
+        g.setColour (down ? text().darker (0.2f) : (highlighted ? juce::Colours::white : text()));
+        g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        g.drawText (button.getButtonText(), bounds.toNearestInt(), juce::Justification::centredLeft);
+    }
+}
+
+void MasterForgeAudioProcessorEditor::ForgeLookAndFeel::drawButtonBackground (
+    juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
+    bool highlighted, bool down)
+{
+    auto r = button.getLocalBounds().toFloat().reduced (0.5f);
+    auto c = backgroundColour;
+    if (highlighted) c = c.brighter (0.10f);
+    if (down) c = c.darker (0.15f);
+    g.setColour (c);
+    g.fillRoundedRectangle (r, 7.0f);
+    g.setColour (highlighted ? accent().withAlpha (0.65f) : line());
+    g.drawRoundedRectangle (r, 7.0f, 1.0f);
+}
+
+void MasterForgeAudioProcessorEditor::ForgeLookAndFeel::drawComboBox (
+    juce::Graphics& g, int width, int height, bool,
+    int, int, int, int, juce::ComboBox& box)
+{
+    auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
+    g.setColour (panel2());
+    g.fillRoundedRectangle (r, 6.0f);
+    g.setColour (box.hasKeyboardFocus (true) ? accent().withAlpha (0.8f) : line());
+    g.drawRoundedRectangle (r, 6.0f, 1.0f);
+
+    juce::Path arrow;
+    const float cx = width - 18.0f;
+    const float cy = height * 0.5f;
+    arrow.startNewSubPath (cx - 4.5f, cy - 2.0f);
+    arrow.lineTo (cx, cy + 2.5f);
+    arrow.lineTo (cx + 4.5f, cy - 2.0f);
+    g.setColour (muted());
+    g.strokePath (arrow, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+juce::Font MasterForgeAudioProcessorEditor::ForgeLookAndFeel::getComboBoxFont (juce::ComboBox&)
+{
+    return juce::Font (juce::FontOptions (13.0f, juce::Font::bold));
+}
+
+void MasterForgeAudioProcessorEditor::AnalyzerPanel::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
     g.setColour (panel());
-    g.fillRoundedRectangle (r, 13.0f);
+    g.fillRoundedRectangle (r, 12.0f);
+    g.setColour (line());
+    g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
 
-    auto plot = r.reduced (14.0f, 12.0f);
-    g.setColour (line().withAlpha (0.75f));
-    for (int i = 1; i < 8; ++i)
+    auto plot = r.reduced (18.0f, 16.0f);
+    auto titleBand = plot.removeFromTop (22.0f);
+
+    g.setColour (text());
+    g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    g.drawText ("REAL-TIME MASTER ANALYZER", titleBand.toNearestInt(), juce::Justification::centredLeft);
+
+    g.setColour (muted());
+    g.setFont (juce::Font (juce::FontOptions (10.0f)));
+    g.drawText ("PRE", (int) titleBand.getRight() - 126, (int) titleBand.getY(), 32, 18, juce::Justification::centred);
+    g.setColour (accent());
+    g.drawText ("POST", (int) titleBand.getRight() - 88, (int) titleBand.getY(), 40, 18, juce::Justification::centred);
+    g.setColour (violet());
+    g.drawText ("EQ", (int) titleBand.getRight() - 42, (int) titleBand.getY(), 30, 18, juce::Justification::centred);
+
+    plot.removeFromTop (4.0f);
+
+    g.setColour (line().withAlpha (0.72f));
+    for (int i = 0; i <= 8; ++i)
     {
-        const auto x = plot.getX() + plot.getWidth() * (float) i / 8.0f;
+        const float x = plot.getX() + plot.getWidth() * (float) i / 8.0f;
         g.drawVerticalLine ((int) x, plot.getY(), plot.getBottom());
     }
-    for (int i = 1; i < 5; ++i)
+    for (int i = 0; i <= 5; ++i)
     {
-        const auto y = plot.getY() + plot.getHeight() * (float) i / 5.0f;
+        const float y = plot.getY() + plot.getHeight() * (float) i / 5.0f;
         g.drawHorizontalLine ((int) y, plot.getX(), plot.getRight());
     }
 
@@ -36,57 +199,187 @@ void MasterForgeAudioProcessorEditor::SpectrumPanel::paint (juce::Graphics& g)
         juce::Path p;
         for (int i = 0; i < MasterEngine::spectrumBins; ++i)
         {
-            const float x = juce::jmap ((float) i, 0.0f, (float) (MasterEngine::spectrumBins - 1), plot.getX(), plot.getRight());
-            const float db = juce::jlimit (-90.0f, 3.0f, src[(size_t) i].load());
-            const float y = juce::jmap (db, -90.0f, 3.0f, plot.getBottom(), plot.getY());
+            const float x = juce::jmap ((float) i, 0.0f, (float) (MasterEngine::spectrumBins - 1),
+                                       plot.getX(), plot.getRight());
+            const float dbv = juce::jlimit (-90.0f, 3.0f, src[(size_t) i].load());
+            const float y = juce::jmap (dbv, -90.0f, 3.0f, plot.getBottom(), plot.getY());
             if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
         }
         g.setColour (c);
-        g.strokePath (p, juce::PathStrokeType (thickness));
+        g.strokePath (p, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     };
 
-    drawSpectrum (processor.engine.preSpectrum, muted().withAlpha (0.55f), 1.2f);
-    drawSpectrum (processor.engine.postSpectrum, cyan().withAlpha (0.85f), 1.8f);
+    drawSpectrum (processor.engine.preSpectrum, muted().withAlpha (0.40f), 1.0f);
+    drawSpectrum (processor.engine.postSpectrum, accent().withAlpha (0.90f), 1.8f);
 
     auto get = [&] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
-    const float low = get ("lowShelf");
-    const float lowMid = get ("lowMid");
-    const float pres = get ("presence");
-    const float air = get ("air");
+    const float lowGain = get ("lowShelf");
+    const float lowFreq = get ("lowShelfHz");
+    const float lowMidGain = get ("lowMid");
+    const float lowMidFreq = get ("lowMidHz");
+    const float lowMidQ = get ("lowMidQ");
+    const float presGain = get ("presence");
+    const float presFreq = get ("presenceHz");
+    const float presQ = get ("presenceQ");
+    const float airGain = get ("air");
+    const float airFreq = get ("airHz");
+
+    auto bell = [] (float freq, float centre, float q)
+    {
+        const float width = juce::jmap (juce::jlimit (0.25f, 4.0f, q), 0.25f, 4.0f, 1.35f, 0.24f);
+        const float x = std::log2 (freq / juce::jmax (20.0f, centre)) / width;
+        return std::exp (-0.5f * x * x);
+    };
 
     juce::Path eq;
-    for (int px = 0; px < (int) plot.getWidth(); ++px)
+    const int pixels = juce::jmax (2, (int) plot.getWidth());
+    for (int px = 0; px < pixels; ++px)
     {
-        const float norm = (float) px / juce::jmax (1.0f, plot.getWidth() - 1.0f);
-        const float f = 20.0f * std::pow (1000.0f, norm);
-        auto bell = [] (float freq, float centre, float width)
-        {
-            const float x = std::log2 (freq / centre) / width;
-            return std::exp (-0.5f * x * x);
-        };
-        const float lowShape = 1.0f / (1.0f + std::pow (f / 130.0f, 3.0f));
-        const float airShape = 1.0f / (1.0f + std::pow (8000.0f / juce::jmax (f, 20.0f), 4.0f));
-        float dbv = low * lowShape
-                  + lowMid * bell (f, 320.0f, 0.82f)
-                  + pres * bell (f, 3200.0f, 0.78f)
-                  + air * airShape;
-        const float x = plot.getX() + (float) px;
-        const float y = juce::jmap (juce::jlimit (-9.0f, 9.0f, dbv), -9.0f, 9.0f, plot.getCentreY() + 32.0f, plot.getCentreY() - 32.0f);
+        const float n = (float) px / (float) (pixels - 1);
+        const float freq = 20.0f * std::pow (1000.0f, n);
+        const float lowShape = 1.0f / (1.0f + std::pow (freq / juce::jmax (30.0f, lowFreq), 3.0f));
+        const float airShape = 1.0f / (1.0f + std::pow (juce::jmax (3000.0f, airFreq) / juce::jmax (freq, 20.0f), 4.0f));
+        const float dbv = lowGain * lowShape
+                        + lowMidGain * bell (freq, lowMidFreq, lowMidQ)
+                        + presGain * bell (freq, presFreq, presQ)
+                        + airGain * airShape;
+
+        const float x = plot.getX() + n * plot.getWidth();
+        const float y = juce::jmap (juce::jlimit (-9.0f, 9.0f, dbv),
+                                    -9.0f, 9.0f, plot.getCentreY() + 40.0f, plot.getCentreY() - 40.0f);
         if (px == 0) eq.startNewSubPath (x, y); else eq.lineTo (x, y);
     }
-    g.setColour (violet().withAlpha (0.95f));
-    g.strokePath (eq, juce::PathStrokeType (2.0f));
 
-    g.setColour (muted());
-    g.setFont (juce::Font (juce::FontOptions (10.0f)));
-    g.drawText ("PRE", (int) plot.getX(), (int) plot.getY(), 40, 14, juce::Justification::left);
-    g.setColour (cyan());
-    g.drawText ("POST", (int) plot.getX() + 42, (int) plot.getY(), 45, 14, juce::Justification::left);
     g.setColour (violet());
-    g.drawText ("EQ", (int) plot.getX() + 90, (int) plot.getY(), 35, 14, juce::Justification::left);
+    g.strokePath (eq, juce::PathStrokeType (2.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    g.setColour (dim());
+    g.setFont (juce::Font (juce::FontOptions (9.0f)));
+    const std::array<juce::String, 8> labels { "20", "50", "100", "250", "1k", "4k", "10k", "20k" };
+    for (int i = 0; i < (int) labels.size(); ++i)
+    {
+        const float x = plot.getX() + plot.getWidth() * (float) i / (float) (labels.size() - 1);
+        g.drawText (labels[(size_t) i], (int) x - 16, (int) plot.getBottom() - 14, 32, 13, juce::Justification::centred);
+    }
 }
 
-MasterForgeAudioProcessorEditor::ModuleCard::ModuleCard (
+void MasterForgeAudioProcessorEditor::MeterPanel::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (panel());
+    g.fillRoundedRectangle (r, 12.0f);
+    g.setColour (line());
+    g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
+
+    auto area = r.reduced (14.0f);
+    auto top = area.removeFromTop (25.0f);
+
+    g.setColour (text());
+    g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    g.drawText ("I / O  •  LOUDNESS", top.toNearestInt(), juce::Justification::centredLeft);
+
+    auto meterZone = area.removeFromTop (205.0f);
+    auto numbers = meterZone.removeFromBottom (32.0f);
+    auto bars = meterZone.reduced (8.0f, 3.0f);
+
+    const float inDb = processor.engine.inputPeakDb.load();
+    const float outDb = processor.engine.outputPeakDb.load();
+    const float inN = normDb (inDb);
+    const float outN = normDb (outDb);
+
+    auto drawBar = [&] (juce::Rectangle<float> br, float norm, juce::String label)
+    {
+        g.setColour (juce::Colour (0xff081018));
+        g.fillRoundedRectangle (br, 4.0f);
+        g.setColour (line());
+        g.drawRoundedRectangle (br, 4.0f, 1.0f);
+
+        auto fill = br.reduced (3.0f);
+        const float h = fill.getHeight() * norm;
+        auto active = fill.withY (fill.getBottom() - h).withHeight (h);
+
+        juce::ColourGradient grad (accent(), active.getCentreX(), active.getBottom(),
+                                   amber(), active.getCentreX(), active.getY(), false);
+        grad.addColour (0.82, green());
+        g.setGradientFill (grad);
+        g.fillRoundedRectangle (active, 2.5f);
+
+        g.setColour (muted());
+        g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+        g.drawText (label, (int) br.getX(), (int) br.getY() - 18, (int) br.getWidth(), 15, juce::Justification::centred);
+    };
+
+    const float barW = 42.0f;
+    const float gap = 36.0f;
+    const float total = barW * 2.0f + gap;
+    const float x0 = bars.getCentreX() - total * 0.5f;
+    drawBar ({ x0, bars.getY() + 18.0f, barW, bars.getHeight() - 20.0f }, inN, "IN");
+    drawBar ({ x0 + barW + gap, bars.getY() + 18.0f, barW, bars.getHeight() - 20.0f }, outN, "OUT");
+
+    g.setColour (text());
+    g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+    g.drawText (juce::String (inDb, 1) + " dBFS",
+                (int) numbers.getX(), (int) numbers.getY(), (int) numbers.getWidth() / 2, (int) numbers.getHeight(),
+                juce::Justification::centred);
+    g.drawText (juce::String (outDb, 1) + " dBFS",
+                (int) numbers.getCentreX(), (int) numbers.getY(), (int) numbers.getWidth() / 2, (int) numbers.getHeight(),
+                juce::Justification::centred);
+
+    auto drawStat = [&] (juce::String name, juce::String value, juce::Colour c)
+    {
+        auto row = area.removeFromTop (34.0f);
+        g.setColour (panel2());
+        g.fillRoundedRectangle (row.reduced (0.0f, 2.0f), 5.0f);
+        g.setColour (muted());
+        g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)));
+        g.drawText (name, row.withTrimmedLeft (9.0f).toNearestInt(), juce::Justification::centredLeft);
+        g.setColour (c);
+        g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        g.drawText (value, row.withTrimmedRight (9.0f).toNearestInt(), juce::Justification::centredRight);
+    };
+
+    drawStat ("LUFS EST", juce::String (processor.engine.loudnessEstimate.load(), 1), text());
+    drawStat ("CREST", juce::String (processor.engine.crestDb.load(), 1) + " dB", text());
+
+    const float corr = processor.engine.correlation.load();
+    drawStat ("CORRELATION", juce::String (corr, 2), corr < 0.0f ? red() : green());
+
+    drawStat ("LIMITER GR", juce::String (processor.engine.limiterReductionDb.load(), 1) + " dB",
+              processor.engine.limiterReductionDb.load() > 5.0f ? amber() : accent());
+
+    drawStat ("INPUT GAIN", juce::String (processor.engine.smartGainAppliedDb.load(), 1) + " dB", accent());
+
+    area.removeFromTop (8.0f);
+    auto coach = area.removeFromTop (58.0f);
+    const float rms = processor.engine.inputRmsDb.load();
+    juce::String message;
+    juce::Colour coachColour = green();
+
+    if (rms < -25.0f)
+    {
+        message = "Вход тихий: добавьте уровень или включите Smart Gain.";
+        coachColour = amber();
+    }
+    else if (rms > -11.0f)
+    {
+        message = "Вход горячий: снизьте уровень, чтобы сохранить транзиенты.";
+        coachColour = red();
+    }
+    else
+    {
+        message = "Вход в рабочей зоне. Можно мастерить без лишнего перегруза.";
+    }
+
+    g.setColour (coachColour.withAlpha (0.10f));
+    g.fillRoundedRectangle (coach, 7.0f);
+    g.setColour (coachColour.withAlpha (0.75f));
+    g.drawRoundedRectangle (coach, 7.0f, 1.0f);
+    g.setColour (text());
+    g.setFont (juce::Font (juce::FontOptions (10.2f)));
+    g.drawFittedText (message, coach.reduced (8.0f).toNearestInt(), juce::Justification::centredLeft, 3);
+}
+
+MasterForgeAudioProcessorEditor::ModulePage::ModulePage (
     MasterForgeAudioProcessor& p,
     juce::String title,
     juce::String toggleId,
@@ -96,34 +389,60 @@ MasterForgeAudioProcessorEditor::ModuleCard::ModuleCard (
       titleText (std::move (title)),
       helpText (std::move (helpString))
 {
-    enabled.setButtonText ({});
-    enabled.setTooltip ("Enable / bypass this mastering block.");
+    enabled.setButtonText ("");
+    enabled.setTooltip ("Включить или обойти этот модуль. При выключении блок не обрабатывает сигнал.");
     addAndMakeVisible (enabled);
     enabledAttachment = std::make_unique<ButtonAttachment> (processor.apvts, toggleId, enabled);
 
-    help.setTooltip (helpText);
-    help.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1d2a3b));
+    help.setTooltip ("Нажмите, чтобы открыть русскую инструкцию по этому модулю.");
+    help.setColour (juce::TextButton::buttonColourId, panel3());
     help.setColour (juce::TextButton::textColourOffId, text());
+    help.onClick = [this]
+    {
+        juce::AlertWindow::showMessageBoxAsync (
+            juce::MessageBoxIconType::InfoIcon,
+            titleText,
+            helpText,
+            "Закрыть");
+    };
     addAndMakeVisible (help);
 
     for (const auto& spec : params)
     {
         auto c = std::make_unique<ParamControl>();
+
         c->slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        c->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 76, 20);
-        c->slider.setColour (juce::Slider::rotarySliderFillColourId, cyan());
-        c->slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff263449));
+        c->slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f,
+                                       juce::MathConstants<float>::pi * 2.75f, true);
+        c->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 82, 22);
         c->slider.setColour (juce::Slider::textBoxTextColourId, text());
-        c->slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff0c1119));
+        c->slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff0a1016));
         c->slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        c->slider.setTextValueSuffix (spec.suffix);
-        c->slider.setTooltip (spec.name + ": drag to adjust; double-click the number to type an exact value.");
+        c->slider.setTooltip (spec.tooltip);
+
+        if (spec.suffix == "%")
+        {
+            c->slider.textFromValueFunction = [] (double v)
+            {
+                return juce::String (v * 100.0, 0) + " %";
+            };
+            c->slider.valueFromTextFunction = [] (const juce::String& s)
+            {
+                return s.retainCharacters ("0123456789.,-").replaceCharacter (',', '.').getDoubleValue() / 100.0;
+            };
+        }
+        else
+        {
+            c->slider.setTextValueSuffix (spec.suffix);
+        }
+
         addAndMakeVisible (c->slider);
 
         c->label.setText (spec.name, juce::dontSendNotification);
         c->label.setJustificationType (juce::Justification::centred);
         c->label.setColour (juce::Label::textColourId, muted());
-        c->label.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+        c->label.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+        c->label.setTooltip (spec.tooltip);
         addAndMakeVisible (c->label);
 
         c->attachment = std::make_unique<SliderAttachment> (processor.apvts, spec.id, c->slider);
@@ -131,53 +450,137 @@ MasterForgeAudioProcessorEditor::ModuleCard::ModuleCard (
     }
 }
 
-void MasterForgeAudioProcessorEditor::ModuleCard::paint (juce::Graphics& g)
+void MasterForgeAudioProcessorEditor::ModulePage::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
-    g.setColour (panel2());
+    g.setColour (panel());
     g.fillRoundedRectangle (r, 12.0f);
     g.setColour (line());
     g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
 
     g.setColour (text());
-    g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-    g.drawText (titleText, 42, 10, juce::jmax (60, getWidth() - 82), 20, juce::Justification::left);
+    g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    g.drawText (titleText, 54, 10, juce::jmax (80, getWidth() - 104), 24, juce::Justification::centredLeft);
+
+    auto info = juce::Rectangle<float> (12.0f, (float) getHeight() - 54.0f,
+                                        (float) getWidth() - 24.0f, 42.0f);
+    g.setColour (juce::Colour (0xff0c131b));
+    g.fillRoundedRectangle (info, 7.0f);
+    g.setColour (accent().withAlpha (0.18f));
+    g.drawRoundedRectangle (info, 7.0f, 1.0f);
+    g.setColour (muted());
+    g.setFont (juce::Font (juce::FontOptions (10.0f)));
+    g.drawFittedText ("ПОДСКАЗКА: " + helpText,
+                      info.reduced (10.0f, 5.0f).toNearestInt(),
+                      juce::Justification::centredLeft, 2);
 }
 
-void MasterForgeAudioProcessorEditor::ModuleCard::resized()
+void MasterForgeAudioProcessorEditor::ModulePage::resized()
 {
-    enabled.setBounds (10, 9, 24, 24);
-    help.setBounds (getWidth() - 32, 9, 22, 22);
+    enabled.setBounds (12, 11, 34, 22);
+    help.setBounds (getWidth() - 38, 9, 27, 27);
 
     if (controls.empty())
         return;
 
-    auto area = getLocalBounds().reduced (8);
-    area.removeFromTop (34);
+    auto area = getLocalBounds().reduced (10);
+    area.removeFromTop (42);
+    area.removeFromBottom (58);
+
     const int count = (int) controls.size();
-    const int cellW = juce::jmax (74, area.getWidth() / count);
+    const int rows = count > 5 ? 2 : 1;
+    const int cols = (count + rows - 1) / rows;
+    const int cellW = juce::jmax (94, area.getWidth() / juce::jmax (1, cols));
+    const int cellH = juce::jmax (112, area.getHeight() / rows);
 
     for (int i = 0; i < count; ++i)
     {
-        auto cell = juce::Rectangle<int> (area.getX() + i * cellW, area.getY(), cellW, area.getHeight()).reduced (3);
-        controls[(size_t) i]->label.setBounds (cell.removeFromTop (18));
+        const int row = i / cols;
+        const int col = i % cols;
+        auto cell = juce::Rectangle<int> (area.getX() + col * cellW,
+                                          area.getY() + row * cellH,
+                                          cellW, cellH).reduced (4);
+        controls[(size_t) i]->label.setBounds (cell.removeFromTop (19));
         controls[(size_t) i]->slider.setBounds (cell);
     }
 }
 
-MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p), spectrum (p)
+MasterForgeAudioProcessorEditor::ModuleTab::ModuleTab (
+    MasterForgeAudioProcessor& p,
+    juce::String title,
+    juce::String toggleId,
+    int index,
+    std::function<void(int)> selectCallback)
+    : processor (p),
+      titleText (std::move (title)),
+      moduleIndex (index),
+      onSelect (std::move (selectCallback))
 {
-    setResizable (true, true);
-    setResizeLimits (920, 650, 1800, 1150);
-    setSize (1220, 820);
+    enabled.setButtonText ("");
+    enabled.setTooltip ("Включить/выключить модуль без открытия его страницы.");
+    addAndMakeVisible (enabled);
+    enabledAttachment = std::make_unique<ButtonAttachment> (processor.apvts, toggleId, enabled);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+}
 
-    addAndMakeVisible (spectrum);
+void MasterForgeAudioProcessorEditor::ModuleTab::setSelected (bool shouldBeSelected)
+{
+    if (selected != shouldBeSelected)
+    {
+        selected = shouldBeSelected;
+        repaint();
+    }
+}
+
+void MasterForgeAudioProcessorEditor::ModuleTab::mouseUp (const juce::MouseEvent&)
+{
+    if (onSelect)
+        onSelect (moduleIndex);
+}
+
+void MasterForgeAudioProcessorEditor::ModuleTab::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().reduced (2.0f);
+    g.setColour (selected ? juce::Colour (0xff182734) : juce::Colour (0xff111922));
+    g.fillRoundedRectangle (r, 8.0f);
+    g.setColour (selected ? accent().withAlpha (0.72f) : line());
+    g.drawRoundedRectangle (r, 8.0f, selected ? 1.4f : 1.0f);
+
+    if (selected)
+    {
+        auto topLine = r.withHeight (3.0f).reduced (8.0f, 0.0f);
+        g.setColour (accent());
+        g.fillRoundedRectangle (topLine, 1.5f);
+    }
+
+    g.setColour (selected ? text() : muted());
+    g.setFont (juce::Font (juce::FontOptions (10.2f, juce::Font::bold)));
+    g.drawFittedText (titleText, 36, 10, getWidth() - 42, getHeight() - 18,
+                      juce::Justification::centredLeft, 2);
+}
+
+void MasterForgeAudioProcessorEditor::ModuleTab::resized()
+{
+    enabled.setBounds (8, getHeight() / 2 - 10, 24, 20);
+}
+
+MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAudioProcessor& p)
+    : AudioProcessorEditor (&p),
+      processor (p),
+      analyzer (p),
+      meters (p)
+{
+    setLookAndFeel (&forgeLookAndFeel);
+    setOpaque (true);
+    setResizable (true, true);
+    setResizeLimits (1040, 690, 1780, 1120);
+    setSize (1280, 780);
 
     for (int i = 0; i < (int) processor.presetNames.size(); ++i)
         presetBox.addItem (processor.presetNames[(size_t) i], i + 1);
+
     presetBox.setSelectedItemIndex (processor.getPresetIndex(), juce::dontSendNotification);
-    presetBox.setTooltip ("Factory mastering starting points. Source level still matters; use the input coach.");
+    presetBox.setTooltip ("Готовые стартовые цепочки мастеринга. После выбора подстройте Input, Maximizer и остальные блоки под конкретный микс.");
     presetBox.onChange = [this]
     {
         const int idx = presetBox.getSelectedItemIndex();
@@ -187,84 +590,161 @@ MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAud
     addAndMakeVisible (presetBox);
 
     masterBypassAttachment = std::make_unique<ButtonAttachment> (processor.apvts, "masterBypass", masterBypass);
-    masterBypass.setTooltip ("Global transparent bypass.");
+    masterBypass.setTooltip ("Глобальный BYPASS. Сигнал проходит без обработки всей мастеринг-цепью.");
     addAndMakeVisible (masterBypass);
 
-    auto prepMeter = [this] (juce::Label& l)
-    {
-        l.setColour (juce::Label::textColourId, text());
-        l.setColour (juce::Label::backgroundColourId, panel());
-        l.setJustificationType (juce::Justification::centred);
-        l.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-        addAndMakeVisible (l);
-    };
+    addAndMakeVisible (analyzer);
+    addAndMakeVisible (meters);
 
-    prepMeter (inputMeter); prepMeter (inputPeak); prepMeter (gainCoach);
-    prepMeter (outputMeter); prepMeter (outputPeak); prepMeter (loudness);
-    prepMeter (crest); prepMeter (corr); prepMeter (status);
+    moduleStripViewport.setViewedComponent (&moduleStripContent, false);
+    moduleStripViewport.setScrollBarsShown (false, true, false, false);
+    moduleStripViewport.setScrollBarThickness (5);
+    moduleStripViewport.setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xff314758));
+    moduleStripViewport.setColour (juce::ScrollBar::backgroundColourId, juce::Colours::transparentBlack);
+    addAndMakeVisible (moduleStripViewport);
 
-    viewport.setViewedComponent (&moduleContent, false);
-    viewport.setScrollBarsShown (true, false);
-    viewport.setColour (juce::ScrollBar::thumbColourId, line());
-    addAndMakeVisible (viewport);
+    addAndMakeVisible (moduleDetail);
 
-    addModule ("INPUT COACH", "smartGain",
-               "Measures incoming RMS/peak and slowly trims toward the target RMS. This is the first density control: keep the mix healthy before compression and limiting.",
-               { {"inputTrim","MANUAL TRIM"," dB"}, {"targetInput","TARGET RMS"," dB"} });
+    addModule ("INPUT / LEVEL", "smartGain",
+               "Сначала выставьте здоровый входной уровень. TARGET RMS задаёт цель для плавного Smart Gain, SPEED — скорость его реакции, RANGE — максимальную автоматическую коррекцию. Для плотного мастера не загоняйте вход в клиппинг.",
+               {
+                   {"inputTrim","INPUT TRIM"," dB","Ручной входной гейн до всей цепи. Используйте для точной подстройки уровня."},
+                   {"targetInput","TARGET RMS"," dB","Целевой средний уровень для Smart Gain. -18 dBFS — безопасная универсальная точка."},
+                   {"smartSpeed","SPEED","%","Скорость автоматической коррекции. Меньше — плавнее и музыкальнее; больше — быстрее."},
+                   {"smartMaxGain","RANGE"," dB","Максимальная величина, на которую Smart Gain может поднять или опустить вход."}
+               });
 
-    addModule ("CLEAN EQ", "cleanEqOn",
-               "Broad mastering EQ: low shelf, low-mid cleanup, presence and air. Designed for small moves; the purple line in the analyzer shows the current curve.",
-               { {"lowShelf","LOW"," dB"}, {"lowMid","LOW MID"," dB"}, {"presence","PRESENCE"," dB"}, {"air","AIR"," dB"} });
+    addModule ("EQUALIZER 1", "cleanEqOn",
+               "Широкий чистый EQ до динамической обработки. Делайте небольшие движения: обычно ±0.5–2 dB достаточно. Частоты и Q доступны отдельно, поэтому блок уже не ограничен четырьмя фиксированными полосами.",
+               {
+                   {"lowShelfHz","LOW FREQ"," Hz","Частота низкой полки. Выберите область, где нужно добавить или убрать общий вес."},
+                   {"lowShelf","LOW GAIN"," dB","Усиление/ослабление низкой полки."},
+                   {"lowMidHz","LOW-MID FREQ"," Hz","Центр нижней середины — зона мути, коробки или тела."},
+                   {"lowMid","LOW-MID GAIN"," dB","Усиление/ослабление нижней середины."},
+                   {"lowMidQ","LOW-MID Q","","Ширина полосы нижней середины. Меньше Q — шире и мягче."},
+                   {"presenceHz","PRES FREQ"," Hz","Центральная частота присутствия/атаки."},
+                   {"presence","PRES GAIN"," dB","Усиление/ослабление присутствия."},
+                   {"presenceQ","PRES Q","","Ширина полосы присутствия."},
+                   {"airHz","AIR FREQ"," Hz","Частота верхней полки воздуха."},
+                   {"air","AIR GAIN"," dB","Добавляет или убирает верхний воздух и блеск."}
+               });
 
     addModule ("DYNAMIC EQ", "dynamicEqOn",
-               "Program-dependent low/high control. Stronger settings dynamically reduce excessive low and upper-band energy rather than applying a permanent cut.",
-               { {"dynamicEq","AMOUNT",""} });
+               "Динамически успокаивает избыток низа и верха только когда они выпирают. THRESHOLD определяет момент срабатывания, ATTACK/RELEASE — характер движения, LOW/HIGH XOVER — области контроля.",
+               {
+                   {"dynamicEq","AMOUNT","%","Общая глубина динамического контроля."},
+                   {"dynThreshold","THRESHOLD"," dB","Порог, выше которого динамический EQ начинает сильнее подавлять проблемную энергию."},
+                   {"dynAttack","ATTACK"," ms","Как быстро модуль реагирует на всплески."},
+                   {"dynRelease","RELEASE"," ms","Как быстро контроль отпускает после всплеска."},
+                   {"dynLowHz","LOW XOVER"," Hz","Граница низкочастотной динамической зоны."},
+                   {"dynHighHz","HIGH XOVER"," Hz","Граница верхней динамической зоны."}
+               });
 
-    addModule ("RESONANCE CONTROL", "resonanceOn",
-               "Tames a common harsh upper-mid resonance zone with a narrow mastering-oriented reduction. Use lightly unless the mix is aggressive.",
-               { {"resonance","AMOUNT",""} });
+    addModule ("STABILIZER", "resonanceOn",
+               "Узкий резонанс-контроль для неприятной середины/верхней середины. Найдите проблемную частоту, настройте Q и добавляйте AMOUNT до исчезновения резкости без потери живости.",
+               {
+                   {"resonance","AMOUNT","%","Глубина подавления выбранной резонансной зоны."},
+                   {"resonanceHz","FREQUENCY"," Hz","Центральная частота проблемного резонанса."},
+                   {"resonanceQ","Q","","Ширина подавления. Большой Q — узкая точечная коррекция."}
+               });
 
-    addModule ("GLUE COMP", "glueOn",
-               "Stereo bus compression with medium attack/release. Adds cohesion while preserving transient shape at moderate settings.",
-               { {"glue","GLUE",""} });
+    addModule ("VINTAGE COMP", "glueOn",
+               "Стерео bus-компрессор для склейки. Смотрите на транзиенты: слишком быстрый ATTACK съедает удар. MIX даёт параллельную компрессию, MAKEUP возвращает уровень без изменения порога.",
+               {
+                   {"glue","AMOUNT","%","Общая интенсивность glue-обработки."},
+                   {"glueThreshold","THRESHOLD"," dB","Порог компрессии."},
+                   {"glueRatio","RATIO",":1","Степень компрессии после пересечения порога."},
+                   {"glueAttack","ATTACK"," ms","Время атаки. Для ударного boom bap обычно полезна более медленная атака."},
+                   {"glueRelease","RELEASE"," ms","Время восстановления после компрессии."},
+                   {"glueMakeup","MAKEUP"," dB","Компенсационный уровень после компрессора."},
+                   {"glueMix","MIX","%","Параллельное смешивание обработанного и исходного сигнала."}
+               });
 
-    addModule ("MULTIBAND DYNAMICS", "multibandOn",
-               "Three-zone level-dependent density control for lows, mids and highs. Useful for making uneven mixes feel more stable before clipping.",
-               { {"multiband","AMOUNT",""} });
+    addModule ("MULTIBAND", "multibandOn",
+               "Трёхполосная плотность: LOW/MID/HIGH обрабатываются отдельно. XOVER задают границы, а индивидуальные AMOUNT позволяют удержать бас, середину и верх без одинакового давления на весь микс.",
+               {
+                   {"multiband","GLOBAL","%","Общая сила многополосной динамики."},
+                   {"mbLowHz","LOW XOVER"," Hz","Граница низкой полосы."},
+                   {"mbHighHz","HIGH XOVER"," Hz","Граница верхней полосы."},
+                   {"mbLowAmount","LOW","%","Плотность низкой полосы."},
+                   {"mbMidAmount","MID","%","Плотность средней полосы."},
+                   {"mbHighAmount","HIGH","%","Плотность верхней полосы."}
+               });
 
-    addModule ("IMPACT / TRANSIENT", "impactOn",
-               "Transient contrast stage. Raises short-term attack relative to the slower envelope to keep drums alive after bus compression.",
-               { {"impact","IMPACT",""} });
+    addModule ("IMPACT", "impactOn",
+               "Возвращает атаку после компрессии и делает ударные выразительнее. SPEED определяет скорость огибающей, MIX — сколько обработанного транзиентного сигнала подмешивается.",
+               {
+                   {"impact","PUNCH","%","Сила транзиентного усиления."},
+                   {"impactSpeed","SPEED","%","Скорость детектора транзиентов."},
+                   {"impactMix","MIX","%","Баланс обработанного и исходного сигнала."}
+               });
 
-    addModule ("ANALOG COLOR", "analogOn",
-               "Low-order soft saturation inspired by tape/tube/console workflows. Adds density and harmonics before the exciter and stereo stages.",
-               { {"analog","DRIVE",""} });
+    addModule ("SATURATION", "analogOn",
+               "Мягкая гармоническая сатурация для плотности. DRIVE отвечает за гармоники, TONE — за яркость окраса, MIX позволяет оставить атаку исходника. На мастере обычно лучше умеренные значения.",
+               {
+                   {"analog","DRIVE","%","Количество нелинейной гармонической окраски."},
+                   {"analogTone","TONE","%","Тон сатурации: левее темнее, правее ярче."},
+                   {"analogMix","MIX","%","Параллельное смешивание сатурации."}
+               });
 
     addModule ("EXCITER", "exciterOn",
-               "Adds controlled upper-frequency harmonic energy based on fast signal changes. Keep low for mastering.",
-               { {"exciter","AMOUNT",""} });
+               "Добавляет контролируемые верхние гармоники, а не просто поднимает EQ. FREQ задаёт область, AMOUNT — количество гармоник, MIX — итоговую долю эффекта.",
+               {
+                   {"exciter","AMOUNT","%","Интенсивность создаваемых гармоник."},
+                   {"exciterHz","FREQUENCY"," Hz","Ниже этой области exciter практически не вмешивается."},
+                   {"exciterMix","MIX","%","Количество эффекта в итоговом сигнале."}
+               });
 
-    addModule ("BASS MONO", "bassMonoOn",
-               "Centers low-frequency information below the selected crossover region to improve translation and mono compatibility.",
-               { {"bassMonoHz","MONO BELOW"," Hz"} });
+    addModule ("LOW END FOCUS", "bassMonoOn",
+               "Собирает суб и низ в центр для стабильного перевода на разные системы. FREQUENCY задаёт границу, AMOUNT — степень моно-совместимости. Верх и середина остаются стерео.",
+               {
+                   {"bassMonoHz","MONO BELOW"," Hz","Частоты ниже этой точки постепенно центрируются."},
+                   {"bassMonoAmount","AMOUNT","%","Степень центровки низких частот."}
+               });
 
-    addModule ("STEREO IMAGER", "imagerOn",
-               "Frequency-conscious width control. Low, mid and high zones have independent width multipliers; avoid excessive low-end widening.",
-               { {"widthLow","LOW","x"}, {"widthMid","MID","x"}, {"widthHigh","HIGH","x"} });
+    addModule ("IMAGER", "imagerOn",
+               "Трёхполосная ширина с защитой по корреляции. Не расширяйте суб без необходимости. SAFETY автоматически уменьшает чрезмерное расширение при ухудшении фазовой корреляции.",
+               {
+                   {"widthLow","LOW WIDTH","%","Ширина низкой полосы: 100% — исходная, меньше — уже."},
+                   {"widthMid","MID WIDTH","%","Ширина середины."},
+                   {"widthHigh","HIGH WIDTH","%","Ширина верхней полосы."},
+                   {"imagerLowHz","LOW XOVER"," Hz","Граница низкой полосы имейджера."},
+                   {"imagerHighHz","HIGH XOVER"," Hz","Граница верхней полосы имейджера."},
+                   {"imagerSafety","SAFETY","%","Насколько сильно защита по корреляции ограничивает рискованное расширение."}
+               });
 
     addModule ("CLIPPER 4x", "clipperOn",
-               "Four-times oversampled soft clipping placed before the final maximizer. Shaves peaks to let the limiter work less aggressively.",
-               { {"clipDrive","DRIVE"," dB"}, {"clipMix","MIX",""} });
+               "Четырёхкратный oversampling уменьшает алиасинг. DRIVE аккуратно срезает короткие пики перед лимитером, CEILING задаёт рабочую границу, SHAPE меняет мягкость колена, MIX позволяет ослабить эффект.",
+               {
+                   {"clipDrive","DRIVE"," dB","Предусиление перед клиппером."},
+                   {"clipCeiling","CEILING"," dB","Уровень мягкого ограничения клиппера."},
+                   {"clipShape","SHAPE","%","Мягкость/жёсткость формы клиппинга."},
+                   {"clipMix","MIX","%","Доля клиппированного сигнала."}
+               });
 
     addModule ("MAXIMIZER 4x", "limiterOn",
-               "Oversampled final loudness stage with drive and output ceiling. Increase drive for loudness; watch crest factor and audible distortion.",
-               { {"limiterDrive","DRIVE"," dB"}, {"ceiling","CEILING"," dB"} });
+               "Финальный stereo-linked лимитер после 4x oversampling. DRIVE определяет громкость, CEILING — выходной потолок, RELEASE — скорость возврата усиления. Следите за LIMITER GR справа: большие значения могут съесть панч.",
+               {
+                   {"limiterDrive","DRIVE"," dB","Входной драйв финального лимитера — главный регулятор итоговой громкости."},
+                   {"ceiling","CEILING"," dB","Жёсткий выходной потолок после лимитера."},
+                   {"limiterRelease","RELEASE"," ms","Скорость восстановления лимитера после пиков."}
+               });
 
-    addModule ("OUTPUT / DITHER", "ditherOn",
-               "24-bit triangular dither is applied at the end of the chain. Output trim lets you level-match or leave extra delivery headroom.",
-               { {"outputTrim","OUTPUT"," dB"} });
+    addModule ("OUTPUT", "ditherOn",
+               "Финальный уровень и общий Dry/Wet. OUTPUT TRIM используется для точного level-match. DITHER добавляется в самом конце и полезен при финальном 24-bit экспорте.",
+               {
+                   {"outputTrim","OUTPUT TRIM"," dB","Финальная подстройка уровня после лимитера."},
+                   {"dryWet","MASTER MIX","%","Глобальный баланс между исходным сигналом и обработанной цепью до финального clip/limit."}
+               });
 
-    startTimerHz (24);
+    selectModule (0);
+    startTimerHz (30);
+}
+
+MasterForgeAudioProcessorEditor::~MasterForgeAudioProcessorEditor()
+{
+    stopTimer();
+    setLookAndFeel (nullptr);
 }
 
 void MasterForgeAudioProcessorEditor::addModule (
@@ -273,91 +753,104 @@ void MasterForgeAudioProcessorEditor::addModule (
     juce::String helpText,
     std::initializer_list<ParamSpec> params)
 {
-    auto card = std::make_unique<ModuleCard> (processor, std::move (title), std::move (toggleId), std::move (helpText), params);
-    moduleContent.addAndMakeVisible (*card);
-    modules.push_back (std::move (card));
+    const int index = (int) pages.size();
+
+    auto page = std::make_unique<ModulePage> (processor, title, toggleId, helpText, params);
+    page->setVisible (false);
+    moduleDetail.addAndMakeVisible (*page);
+
+    auto tab = std::make_unique<ModuleTab> (
+        processor, title, toggleId, index,
+        [this] (int i) { selectModule (i); });
+    moduleStripContent.addAndMakeVisible (*tab);
+
+    pages.push_back (std::move (page));
+    tabs.push_back (std::move (tab));
+}
+
+void MasterForgeAudioProcessorEditor::selectModule (int index)
+{
+    if (pages.empty())
+        return;
+
+    selectedModule = juce::jlimit (0, (int) pages.size() - 1, index);
+
+    for (int i = 0; i < (int) pages.size(); ++i)
+    {
+        pages[(size_t) i]->setVisible (i == selectedModule);
+        tabs[(size_t) i]->setSelected (i == selectedModule);
+    }
+
+    resized();
 }
 
 void MasterForgeAudioProcessorEditor::timerCallback()
 {
-    auto fmt = [] (float v) { return juce::String (v, 1); };
-
-    inputMeter.setText ("IN RMS  " + fmt (processor.engine.inputRmsDb.load()) + " dBFS", juce::dontSendNotification);
-    inputPeak.setText ("IN PEAK  " + fmt (processor.engine.inputPeakDb.load()) + " dBFS", juce::dontSendNotification);
-    gainCoach.setText ("GAIN  " + juce::String (processor.engine.smartGainAppliedDb.load(), 1) + " dB", juce::dontSendNotification);
-    outputMeter.setText ("OUT RMS  " + fmt (processor.engine.outputRmsDb.load()) + " dBFS", juce::dontSendNotification);
-    outputPeak.setText ("OUT PEAK  " + fmt (processor.engine.outputPeakDb.load()) + " dBFS", juce::dontSendNotification);
-    loudness.setText ("LUFS EST  " + fmt (processor.engine.loudnessEstimate.load()), juce::dontSendNotification);
-    crest.setText ("CREST  " + fmt (processor.engine.crestDb.load()) + " dB", juce::dontSendNotification);
-    corr.setText ("CORR  " + juce::String (processor.engine.correlation.load(), 2), juce::dontSendNotification);
-
-    const float in = processor.engine.inputRmsDb.load();
-    juce::String coach = "INPUT: ";
-    if (in < -22.0f) coach += "LOW - add gain";
-    else if (in > -13.0f) coach += "HOT - reduce gain";
-    else coach += "HEALTHY";
-    status.setText (coach, juce::dontSendNotification);
-
-    spectrum.repaint();
+    analyzer.repaint();
+    meters.repaint();
 }
 
 void MasterForgeAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (bg());
 
-    auto head = juce::Rectangle<int> (0, 0, getWidth(), 76).toFloat();
-    juce::ColourGradient grad (juce::Colour (0xff101827), head.getX(), head.getY(),
-                               juce::Colour (0xff081019), head.getRight(), head.getBottom(), false);
-    g.setGradientFill (grad);
+    auto bounds = getLocalBounds().toFloat();
+    auto head = bounds.removeFromTop (66.0f);
+
+    g.setColour (header());
     g.fillRect (head);
+    g.setColour (line());
+    g.drawHorizontalLine ((int) head.getBottom() - 1, head.getX(), head.getRight());
 
     g.setColour (text());
-    g.setFont (juce::Font (juce::FontOptions (26.0f, juce::Font::bold)));
-    g.drawText ("MASTERFORGE ONE", 22, 12, 330, 30, juce::Justification::left);
+    g.setFont (juce::Font (juce::FontOptions (23.0f, juce::Font::bold)));
+    g.drawText ("MASTERFORGE ONE", 22, 12, 330, 25, juce::Justification::centredLeft);
 
-    g.setColour (cyan());
-    g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
-    g.drawText ("ALL-IN-ONE MASTERING / DENSITY / PUNCH / WIDTH / FINAL LEVEL", 24, 43, 500, 18, juce::Justification::left);
+    g.setColour (accent());
+    g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)));
+    g.drawText ("PRO MASTERING SUITE  •  4x FINAL STAGE  •  SMOOTH DSP",
+                23, 39, 430, 16, juce::Justification::centredLeft);
+
+    auto rack = juce::Rectangle<float> (0.0f, 66.0f, (float) getWidth(), 86.0f);
+    g.setColour (juce::Colour (0xff0a1016));
+    g.fillRect (rack);
+    g.setColour (line().withAlpha (0.7f));
+    g.drawHorizontalLine ((int) rack.getBottom() - 1, rack.getX(), rack.getRight());
 }
 
 void MasterForgeAudioProcessorEditor::resized()
 {
-    const int margin = 18;
-    auto area = getLocalBounds().reduced (margin);
-    auto header = area.removeFromTop (48);
-    header.removeFromLeft (500);
+    auto bounds = getLocalBounds();
 
-    masterBypass.setBounds (header.removeFromRight (95).reduced (4));
-    header.removeFromRight (8);
-    presetBox.setBounds (header.removeFromRight (360).reduced (0, 4));
+    auto headerArea = bounds.removeFromTop (66);
+    auto headerRight = headerArea.removeFromRight (juce::jmin (590, getWidth() / 2));
+    masterBypass.setBounds (headerRight.removeFromRight (105).reduced (8, 17));
+    presetBox.setBounds (headerRight.reduced (6, 14));
 
-    area.removeFromTop (14);
+    auto stripArea = bounds.removeFromTop (86).reduced (12, 8);
+    moduleStripViewport.setBounds (stripArea);
 
-    auto topArea = area.removeFromTop ((int) juce::jlimit (190.0f, 330.0f, getHeight() * 0.31f));
-    auto metersArea = topArea.removeFromRight (300);
-    metersArea.removeFromLeft (12);
-    spectrum.setBounds (topArea);
+    const int tabW = 142;
+    const int tabH = 66;
+    const int gap = 6;
+    const int contentW = juce::jmax (stripArea.getWidth(), (int) tabs.size() * (tabW + gap));
+    moduleStripContent.setSize (contentW, tabH + 4);
 
-    const int meterH = juce::jmax (24, metersArea.getHeight() / 9);
-    std::array<juce::Label*, 9> meterLabels {
-        &inputMeter, &inputPeak, &gainCoach, &outputMeter, &outputPeak, &loudness, &crest, &corr, &status
-    };
-    for (auto* label : meterLabels)
-        label->setBounds (metersArea.removeFromTop (meterH).reduced (0, 2));
+    for (int i = 0; i < (int) tabs.size(); ++i)
+        tabs[(size_t) i]->setBounds (i * (tabW + gap), 0, tabW, tabH);
 
-    area.removeFromTop (12);
-    viewport.setBounds (area);
+    auto work = bounds.reduced (12, 10);
+    auto meterArea = work.removeFromRight (juce::jlimit (218, 265, getWidth() / 5));
+    work.removeFromRight (10);
 
-    const int cardH = juce::jmax (118, (int) (getHeight() * 0.16f));
-    const int gap = 10;
-    const int contentW = juce::jmax (700, viewport.getWidth() - viewport.getScrollBarThickness() - 4);
-    const int contentH = (cardH + gap) * (int) modules.size() + gap;
-    moduleContent.setSize (contentW, contentH);
+    meters.setBounds (meterArea);
 
-    int y = gap;
-    for (auto& m : modules)
-    {
-        m->setBounds (gap, y, contentW - 2 * gap, cardH);
-        y += cardH + gap;
-    }
+    auto analyzerArea = work.removeFromTop (juce::jlimit (215, 270, getHeight() / 3));
+    analyzer.setBounds (analyzerArea);
+
+    work.removeFromTop (10);
+    moduleDetail.setBounds (work);
+
+    for (auto& page : pages)
+        page->setBounds (moduleDetail.getLocalBounds());
 }

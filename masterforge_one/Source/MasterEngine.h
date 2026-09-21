@@ -25,26 +25,79 @@ struct MasterSettings
 
     float inputTrimDb = 0.0f;
     float targetInputRmsDb = -18.0f;
+    float smartSpeed = 0.35f;
+    float smartMaxGainDb = 9.0f;
+
     float lowShelfDb = 0.0f;
+    float lowShelfHz = 105.0f;
     float lowMidDb = 0.0f;
+    float lowMidHz = 320.0f;
+    float lowMidQ = 0.85f;
     float presenceDb = 0.0f;
+    float presenceHz = 3200.0f;
+    float presenceQ = 0.90f;
     float airDb = 0.0f;
+    float airHz = 10500.0f;
+
     float dynamicEq = 0.30f;
+    float dynThresholdDb = -20.0f;
+    float dynAttackMs = 18.0f;
+    float dynReleaseMs = 160.0f;
+    float dynLowHz = 260.0f;
+    float dynHighHz = 5200.0f;
+
     float resonance = 0.22f;
+    float resonanceHz = 2850.0f;
+    float resonanceQ = 2.6f;
+
     float glue = 0.35f;
+    float glueThresholdDb = -16.0f;
+    float glueRatio = 2.0f;
+    float glueAttackMs = 24.0f;
+    float glueReleaseMs = 180.0f;
+    float glueMakeupDb = 0.0f;
+    float glueMix = 0.72f;
+
     float multiband = 0.30f;
+    float mbLowHz = 150.0f;
+    float mbHighHz = 4500.0f;
+    float mbLowAmount = 0.40f;
+    float mbMidAmount = 0.30f;
+    float mbHighAmount = 0.24f;
+
     float impact = 0.30f;
+    float impactSpeed = 0.45f;
+    float impactMix = 0.70f;
+
     float analog = 0.16f;
+    float analogTone = 0.58f;
+    float analogMix = 0.55f;
+
     float exciter = 0.12f;
+    float exciterHz = 6500.0f;
+    float exciterMix = 0.45f;
+
     float bassMonoHz = 115.0f;
+    float bassMonoAmount = 1.0f;
+
     float widthLow = 0.92f;
     float widthMid = 1.02f;
     float widthHigh = 1.08f;
+    float imagerLowHz = 180.0f;
+    float imagerHighHz = 5000.0f;
+    float imagerSafety = 0.80f;
+
     float dryWet = 1.0f;
+
     float clipDriveDb = 1.5f;
     float clipMix = 1.0f;
+    float clipCeilingDb = -0.35f;
+    float clipShape = 0.55f;
+
     float limiterDriveDb = 3.0f;
     float limiterCeilingDb = -0.9f;
+    float limiterReleaseMs = 120.0f;
+
     float outputTrimDb = 0.0f;
 };
 
@@ -55,11 +108,11 @@ public:
 
     void prepare (double newSampleRate, int maximumBlockSize, int channels)
     {
-        sampleRate = newSampleRate;
+        sampleRate = juce::jmax (8000.0, newSampleRate);
         numChannels = juce::jlimit (1, 2, channels);
-        maxBlock = maximumBlockSize;
+        maxBlock = juce::jmax (16, maximumBlockSize);
 
-        juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) maximumBlockSize, (juce::uint32) numChannels };
+        juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) maxBlock, (juce::uint32) numChannels };
         lowCut.prepare (spec);
         lowShelf.prepare (spec);
         lowMid.prepare (spec);
@@ -68,18 +121,17 @@ public:
         resonanceFilter.prepare (spec);
         glueComp.prepare (spec);
 
-        glueComp.setAttack (24.0f);
-        glueComp.setRelease (180.0f);
-
         oversampling = std::make_unique<juce::dsp::Oversampling<float>> (
             (size_t) numChannels, 2,
             juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
             true, true);
-        oversampling->initProcessing ((size_t) maximumBlockSize);
+        oversampling->initProcessing ((size_t) maxBlock);
 
-        dry.setSize (numChannels, maximumBlockSize);
+        dry.setSize (numChannels, maxBlock);
+        glueDry.setSize (numChannels, maxBlock);
         reset();
         updateFilters();
+        updateCompressor();
     }
 
     void reset()
@@ -89,23 +141,32 @@ public:
         if (oversampling) oversampling->reset();
 
         lowDynState.fill (0.0f);
+        highDynState.fill (0.0f);
+        lowDynEnv.fill (0.0f);
+        highDynEnv.fill (0.0f);
         multibandLow.fill (0.0f);
         multibandHigh.fill (0.0f);
         bassLow.fill (0.0f);
         impactFast.fill (0.0f);
         impactSlow.fill (0.0f);
+        analogLp.fill (0.0f);
+        exciterLp.fill (0.0f);
+        imagerLow.fill (0.0f);
+        imagerHighLp.fill (0.0f);
+
         smartGainDb = 0.0f;
+        lastInputGain = 1.0f;
+        lastOutputGain = 1.0f;
+        limiterGain = 1.0f;
         meterCounter = 0;
+        limiterReductionDb.store (0.0f);
     }
 
     void setSettings (const MasterSettings& s)
     {
         settings = s;
         updateFilters();
-        glueComp.setThreshold (-18.0f + 7.0f * settings.glue);
-        glueComp.setRatio (1.5f + 2.5f * settings.glue);
-        glueComp.setAttack (30.0f - 18.0f * settings.glue);
-        glueComp.setRelease (220.0f - 90.0f * settings.glue);
+        updateCompressor();
     }
 
     int getLatencySamples() const
@@ -123,6 +184,7 @@ public:
 
         if (settings.masterBypass)
         {
+            limiterReductionDb.store (0.0f);
             measureOutput (buffer);
             analyzeSpectrum (buffer, postSpectrum);
             return;
@@ -152,7 +214,7 @@ public:
             resonanceFilter.process (ctx);
 
         if (settings.glueOn)
-            glueComp.process (ctx);
+            processGlue (buffer);
 
         if (settings.multibandOn)
             processMultiband (buffer);
@@ -185,12 +247,15 @@ public:
 
         if ((settings.clipperOn || settings.limiterOn) && oversampling)
             processOversampledFinal (buffer);
+        else
+            limiterReductionDb.store (0.0f);
 
-        buffer.applyGain (juce::Decibels::decibelsToGain (settings.outputTrimDb));
+        applyOutputTrim (buffer);
 
         if (settings.ditherOn)
             applyDither (buffer);
 
+        sanitize (buffer);
         measureOutput (buffer);
         analyzeSpectrum (buffer, postSpectrum);
     }
@@ -203,6 +268,7 @@ public:
     std::atomic<float> crestDb { 0.0f };
     std::atomic<float> correlation { 1.0f };
     std::atomic<float> smartGainAppliedDb { 0.0f };
+    std::atomic<float> limiterReductionDb { 0.0f };
     std::array<std::atomic<float>, spectrumBins> preSpectrum {};
     std::array<std::atomic<float>, spectrumBins> postSpectrum {};
 
@@ -211,82 +277,179 @@ private:
         juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
 
+    static float coeffForHz (float hz, double sr)
+    {
+        hz = juce::jlimit (2.0f, (float) (sr * 0.45), hz);
+        return 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hz / (float) sr);
+    }
+
+    static float timeCoeff (float ms, double sr)
+    {
+        ms = juce::jmax (0.05f, ms);
+        return std::exp (-1.0f / (0.001f * ms * (float) sr));
+    }
+
     void updateFilters()
     {
         if (sampleRate <= 0.0)
             return;
 
+        const float lowHz = juce::jlimit (35.0f, 350.0f, settings.lowShelfHz);
+        const float lowMidHz = juce::jlimit (90.0f, 1200.0f, settings.lowMidHz);
+        const float presenceHz = juce::jlimit (900.0f, 8000.0f, settings.presenceHz);
+        const float airHz = juce::jlimit (5000.0f, 18000.0f, settings.airHz);
+
         *lowCut.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, 20.0, 0.707);
         *lowShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf (
-            sampleRate, 105.0, 0.72, juce::Decibels::decibelsToGain (settings.lowShelfDb));
+            sampleRate, lowHz, 0.72, juce::Decibels::decibelsToGain (settings.lowShelfDb));
         *lowMid.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-            sampleRate, 320.0, 0.85, juce::Decibels::decibelsToGain (settings.lowMidDb));
+            sampleRate, lowMidHz, juce::jlimit (0.25f, 4.0f, settings.lowMidQ),
+            juce::Decibels::decibelsToGain (settings.lowMidDb));
         *presence.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-            sampleRate, 3200.0, 0.90, juce::Decibels::decibelsToGain (settings.presenceDb));
+            sampleRate, presenceHz, juce::jlimit (0.25f, 4.0f, settings.presenceQ),
+            juce::Decibels::decibelsToGain (settings.presenceDb));
         *air.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
-            sampleRate, 10500.0, 0.70, juce::Decibels::decibelsToGain (settings.airDb));
+            sampleRate, airHz, 0.70, juce::Decibels::decibelsToGain (settings.airDb));
 
-        const float notchDb = -juce::jlimit (0.0f, 5.0f, settings.resonance * 5.0f);
+        const float notchDb = -juce::jlimit (0.0f, 8.0f, settings.resonance * 8.0f);
         *resonanceFilter.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-            sampleRate, 2850.0, 2.6, juce::Decibels::decibelsToGain (notchDb));
+            sampleRate,
+            juce::jlimit (500.0f, 12000.0f, settings.resonanceHz),
+            juce::jlimit (0.4f, 10.0f, settings.resonanceQ),
+            juce::Decibels::decibelsToGain (notchDb));
     }
 
-    static float coeffForHz (float hz, double sr)
+    void updateCompressor()
     {
-        return 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hz / (float) sr);
+        glueComp.setThreshold (juce::jlimit (-36.0f, -2.0f, settings.glueThresholdDb));
+        glueComp.setRatio (juce::jlimit (1.1f, 10.0f, settings.glueRatio));
+        glueComp.setAttack (juce::jlimit (0.5f, 100.0f, settings.glueAttackMs));
+        glueComp.setRelease (juce::jlimit (30.0f, 600.0f, settings.glueReleaseMs));
     }
 
     void applyInputCoach (juce::AudioBuffer<float>& buffer)
     {
-        float applied = settings.inputTrimDb;
+        float appliedDb = settings.inputTrimDb;
+
         if (settings.smartGain)
         {
             const float current = inputRmsDb.load();
-            const float desired = juce::jlimit (-12.0f, 12.0f, settings.targetInputRmsDb - current);
-            smartGainDb += 0.035f * (desired - smartGainDb);
-            applied += smartGainDb;
+            const float maxGain = juce::jlimit (1.0f, 18.0f, settings.smartMaxGainDb);
+            const float desired = juce::jlimit (-maxGain, maxGain, settings.targetInputRmsDb - current);
+            const float speed = juce::jlimit (0.0f, 1.0f, settings.smartSpeed);
+            const float tauSeconds = juce::jmap (speed, 2.5f, 0.18f);
+            const float alpha = 1.0f - std::exp (-(float) buffer.getNumSamples() / ((float) sampleRate * tauSeconds));
+            smartGainDb += alpha * (desired - smartGainDb);
+            appliedDb += smartGainDb;
         }
         else
         {
-            smartGainDb *= 0.96f;
+            smartGainDb *= 0.995f;
         }
 
-        smartGainAppliedDb.store (applied);
-        buffer.applyGain (juce::Decibels::decibelsToGain (applied));
+        smartGainAppliedDb.store (appliedDb);
+        const float targetGain = juce::Decibels::decibelsToGain (appliedDb);
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.applyGainRamp (ch, 0, buffer.getNumSamples(), lastInputGain, targetGain);
+
+        lastInputGain = targetGain;
+    }
+
+    void applyOutputTrim (juce::AudioBuffer<float>& buffer)
+    {
+        const float targetGain = juce::Decibels::decibelsToGain (settings.outputTrimDb);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.applyGainRamp (ch, 0, buffer.getNumSamples(), lastOutputGain, targetGain);
+        lastOutputGain = targetGain;
     }
 
     void processDynamicEq (juce::AudioBuffer<float>& buffer)
     {
-        const float a = coeffForHz (260.0f, sampleRate);
         const float amount = juce::jlimit (0.0f, 1.0f, settings.dynamicEq);
+        if (amount <= 0.0001f)
+            return;
+
+        const float lowA = coeffForHz (settings.dynLowHz, sampleRate);
+        const float highA = coeffForHz (juce::jmax (settings.dynLowHz + 300.0f, settings.dynHighHz), sampleRate);
+        const float threshold = juce::Decibels::decibelsToGain (settings.dynThresholdDb);
+        const float attack = timeCoeff (settings.dynAttackMs, sampleRate);
+        const float release = timeCoeff (settings.dynReleaseMs, sampleRate);
+        const float minGain = juce::Decibels::decibelsToGain (-12.0f * amount);
 
         for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
         {
             auto* d = buffer.getWritePointer (ch);
-            float lp = lowDynState[(size_t) ch];
+            float lowState = lowDynState[(size_t) ch];
+            float highState = highDynState[(size_t) ch];
+            float lowEnv = lowDynEnv[(size_t) ch];
+            float highEnv = highDynEnv[(size_t) ch];
 
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
                 const float x = d[i];
-                lp += a * (x - lp);
-                const float high = x - lp;
+                lowState += lowA * (x - lowState);
+                highState += highA * (x - highState);
 
-                const float lowAbs = std::abs (lp);
+                const float low = lowState;
+                const float high = x - highState;
+                const float mid = x - low - high;
+
+                const float lowAbs = std::abs (low);
                 const float highAbs = std::abs (high);
-                const float lowReduction = 1.0f / (1.0f + amount * 3.2f * juce::jmax (0.0f, lowAbs - 0.22f));
-                const float highReduction = 1.0f / (1.0f + amount * 2.4f * juce::jmax (0.0f, highAbs - 0.18f));
-                d[i] = lp * lowReduction + high * highReduction;
+                lowEnv = (lowAbs > lowEnv ? attack : release) * lowEnv
+                       + (1.0f - (lowAbs > lowEnv ? attack : release)) * lowAbs;
+                highEnv = (highAbs > highEnv ? attack : release) * highEnv
+                        + (1.0f - (highAbs > highEnv ? attack : release)) * highAbs;
+
+                auto gainFor = [threshold, minGain, amount] (float env, float tilt)
+                {
+                    if (env <= threshold || threshold <= 0.0f)
+                        return 1.0f;
+                    const float ratioPower = 0.22f + amount * tilt;
+                    return juce::jmax (minGain, std::pow (threshold / juce::jmax (env, 1.0e-7f), ratioPower));
+                };
+
+                const float gl = gainFor (lowEnv, 0.95f);
+                const float gh = gainFor (highEnv, 0.78f);
+                d[i] = low * gl + mid + high * gh;
             }
 
-            lowDynState[(size_t) ch] = lp;
+            lowDynState[(size_t) ch] = lowState;
+            highDynState[(size_t) ch] = highState;
+            lowDynEnv[(size_t) ch] = lowEnv;
+            highDynEnv[(size_t) ch] = highEnv;
+        }
+    }
+
+    void processGlue (juce::AudioBuffer<float>& buffer)
+    {
+        glueDry.setSize (buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
+        glueDry.makeCopyOf (buffer, true);
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::dsp::ProcessContextReplacing<float> ctx (block);
+        glueComp.process (ctx);
+
+        const float makeup = juce::Decibels::decibelsToGain (settings.glueMakeupDb);
+        buffer.applyGain (makeup);
+
+        const float amount = juce::jlimit (0.0f, 1.0f, settings.glue);
+        const float wet = juce::jlimit (0.0f, 1.0f, settings.glueMix * (0.45f + 0.55f * amount));
+        const float dryMix = 1.0f - wet;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            buffer.applyGain (ch, 0, buffer.getNumSamples(), wet);
+            buffer.addFrom (ch, 0, glueDry, ch, 0, buffer.getNumSamples(), dryMix);
         }
     }
 
     void processMultiband (juce::AudioBuffer<float>& buffer)
     {
-        const float lowA = coeffForHz (150.0f, sampleRate);
-        const float highA = coeffForHz (4500.0f, sampleRate);
-        const float amount = juce::jlimit (0.0f, 1.0f, settings.multiband);
+        const float global = juce::jlimit (0.0f, 1.0f, settings.multiband);
+        const float lowA = coeffForHz (settings.mbLowHz, sampleRate);
+        const float highA = coeffForHz (juce::jmax (settings.mbLowHz + 400.0f, settings.mbHighHz), sampleRate);
 
         for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
         {
@@ -304,16 +467,18 @@ private:
                 const float high = x - highState;
                 const float mid = x - low - high;
 
-                auto tame = [amount](float v, float threshold, float strength)
+                auto tame = [global] (float v, float bandAmount, float threshold, float strength)
                 {
+                    const float amount = juce::jlimit (0.0f, 1.0f, bandAmount) * global;
                     const float av = std::abs (v);
-                    const float g = 1.0f / (1.0f + amount * strength * juce::jmax (0.0f, av - threshold));
+                    const float excess = juce::jmax (0.0f, av - threshold);
+                    const float g = 1.0f / (1.0f + amount * strength * excess);
                     return v * g;
                 };
 
-                d[i] = tame (low, 0.24f, 2.2f)
-                     + tame (mid, 0.18f, 1.5f)
-                     + tame (high, 0.12f, 1.2f);
+                d[i] = tame (low, settings.mbLowAmount, 0.19f, 3.2f)
+                     + tame (mid, settings.mbMidAmount, 0.15f, 2.4f)
+                     + tame (high, settings.mbHighAmount, 0.10f, 2.0f);
             }
 
             multibandLow[(size_t) ch] = lowState;
@@ -324,8 +489,12 @@ private:
     void processImpact (juce::AudioBuffer<float>& buffer)
     {
         const float amount = juce::jlimit (0.0f, 1.0f, settings.impact);
-        const float fastRelease = std::exp (-1.0f / (0.012f * (float) sampleRate));
-        const float slowRelease = std::exp (-1.0f / (0.160f * (float) sampleRate));
+        const float mix = juce::jlimit (0.0f, 1.0f, settings.impactMix);
+        const float speed = juce::jlimit (0.0f, 1.0f, settings.impactSpeed);
+        const float fastReleaseMs = juce::jmap (speed, 28.0f, 5.0f);
+        const float slowReleaseMs = juce::jmap (speed, 260.0f, 95.0f);
+        const float fastRelease = timeCoeff (fastReleaseMs, sampleRate);
+        const float slowRelease = timeCoeff (slowReleaseMs, sampleRate);
 
         for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
         {
@@ -340,8 +509,9 @@ private:
                 fast = juce::jmax (a, fast * fastRelease);
                 slow = juce::jmax (a, slow * slowRelease);
                 const float transient = juce::jmax (0.0f, fast - slow);
-                const float boost = 1.0f + amount * juce::jlimit (0.0f, 0.22f, transient);
-                d[i] = x * boost;
+                const float boost = 1.0f + amount * juce::jlimit (0.0f, 0.35f, transient * 1.7f);
+                const float shaped = x * boost;
+                d[i] = x + (shaped - x) * mix;
             }
 
             impactFast[(size_t) ch] = fast;
@@ -351,38 +521,52 @@ private:
 
     void processAnalog (juce::AudioBuffer<float>& buffer)
     {
-        const float a = juce::jlimit (0.0f, 1.0f, settings.analog);
-        const float drive = 1.0f + a * 3.2f;
-        const float norm = std::tanh (drive);
+        const float amount = juce::jlimit (0.0f, 1.0f, settings.analog);
+        const float mix = juce::jlimit (0.0f, 1.0f, settings.analogMix);
+        const float drive = 1.0f + amount * 4.0f;
+        const float norm = juce::jmax (0.001f, std::tanh (drive));
+        const float toneHz = juce::jmap (juce::jlimit (0.0f, 1.0f, settings.analogTone), 2600.0f, 18000.0f);
+        const float a = coeffForHz (toneHz, sampleRate);
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
         {
             auto* d = buffer.getWritePointer (ch);
+            float lp = analogLp[(size_t) ch];
+
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
                 const float x = d[i];
-                const float coloured = std::tanh (x * drive) / juce::jmax (0.001f, norm);
-                d[i] = juce::jmap (a * 0.72f, x, coloured);
+                const float sat = std::tanh (x * drive) / norm;
+                lp += a * (sat - lp);
+                const float coloured = lp + (sat - lp) * juce::jlimit (0.25f, 1.0f, settings.analogTone + 0.18f);
+                d[i] = x + (coloured - x) * mix * (0.25f + 0.75f * amount);
             }
+
+            analogLp[(size_t) ch] = lp;
         }
     }
 
     void processExciter (juce::AudioBuffer<float>& buffer)
     {
         const float amount = juce::jlimit (0.0f, 1.0f, settings.exciter);
+        const float mix = juce::jlimit (0.0f, 1.0f, settings.exciterMix);
+        const float a = coeffForHz (juce::jlimit (2500.0f, 14000.0f, settings.exciterHz), sampleRate);
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
         {
             auto* d = buffer.getWritePointer (ch);
-            float prev = 0.0f;
+            float lp = exciterLp[(size_t) ch];
+
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
                 const float x = d[i];
-                const float high = x - prev;
-                prev += 0.32f * (x - prev);
-                const float fizz = std::tanh (high * 7.0f) * amount * 0.075f;
-                d[i] = x + fizz;
+                lp += a * (x - lp);
+                const float high = x - lp;
+                const float harmonic = std::tanh (high * 6.5f) * 0.12f;
+                d[i] = x + harmonic * amount * mix;
             }
+
+            exciterLp[(size_t) ch] = lp;
         }
     }
 
@@ -393,17 +577,22 @@ private:
 
         auto* l = buffer.getWritePointer (0);
         auto* r = buffer.getWritePointer (1);
-        const float a = coeffForHz (juce::jlimit (45.0f, 220.0f, settings.bassMonoHz), sampleRate);
+        const float a = coeffForHz (juce::jlimit (45.0f, 250.0f, settings.bassMonoHz), sampleRate);
+        const float amount = juce::jlimit (0.0f, 1.0f, settings.bassMonoAmount);
         float ll = bassLow[0];
         float rr = bassLow[1];
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
-            ll += a * (l[i] - ll);
-            rr += a * (r[i] - rr);
+            const float inL = l[i];
+            const float inR = r[i];
+            ll += a * (inL - ll);
+            rr += a * (inR - rr);
             const float mono = 0.5f * (ll + rr);
-            l[i] = (l[i] - ll) + mono;
-            r[i] = (r[i] - rr) + mono;
+            const float procL = (inL - ll) + mono;
+            const float procR = (inR - rr) + mono;
+            l[i] = inL + (procL - inL) * amount;
+            r[i] = inR + (procR - inR) * amount;
         }
 
         bassLow[0] = ll;
@@ -418,9 +607,28 @@ private:
         auto* l = buffer.getWritePointer (0);
         auto* r = buffer.getWritePointer (1);
 
-        const float lowA = coeffForHz (180.0f, sampleRate);
-        const float highA = coeffForHz (5000.0f, sampleRate);
-        float lowL = 0.0f, lowR = 0.0f, highLpL = 0.0f, highLpR = 0.0f;
+        const float lowA = coeffForHz (juce::jlimit (80.0f, 500.0f, settings.imagerLowHz), sampleRate);
+        const float highA = coeffForHz (juce::jlimit (1800.0f, 12000.0f, settings.imagerHighHz), sampleRate);
+
+        float lowL = imagerLow[0], lowR = imagerLow[1];
+        float highLpL = imagerHighLp[0], highLpR = imagerHighLp[1];
+
+        const float safety = juce::jlimit (0.0f, 1.0f, settings.imagerSafety);
+        const float corr = juce::jlimit (-1.0f, 1.0f, correlation.load());
+        const float corrFactor = juce::jmap (corr, -1.0f, 1.0f, 0.45f, 1.0f);
+        const float safeFactor = juce::jmap (safety, 1.0f, corrFactor);
+
+        const float wLow = 1.0f + (settings.widthLow - 1.0f) * safeFactor;
+        const float wMid = 1.0f + (settings.widthMid - 1.0f) * safeFactor;
+        const float wHigh = 1.0f + (settings.widthHigh - 1.0f) * safeFactor;
+
+        auto widenPair = [] (float a, float b, float width, float& oa, float& ob)
+        {
+            const float m = 0.5f * (a + b);
+            const float s = 0.5f * (a - b) * width;
+            oa = m + s;
+            ob = m - s;
+        };
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
@@ -436,22 +644,17 @@ private:
             const float midL = inL - lowL - highL;
             const float midR = inR - lowR - highR;
 
-            auto widenPair = [] (float a, float b, float width, float& oa, float& ob)
-            {
-                const float m = 0.5f * (a + b);
-                const float s = 0.5f * (a - b) * width;
-                oa = m + s;
-                ob = m - s;
-            };
-
             float loL, loR, miL, miR, hiL, hiR;
-            widenPair (lowL, lowR, settings.widthLow, loL, loR);
-            widenPair (midL, midR, settings.widthMid, miL, miR);
-            widenPair (highL, highR, settings.widthHigh, hiL, hiR);
+            widenPair (lowL, lowR, wLow, loL, loR);
+            widenPair (midL, midR, wMid, miL, miR);
+            widenPair (highL, highR, wHigh, hiL, hiR);
 
             l[i] = loL + miL + hiL;
             r[i] = loR + miR + hiR;
         }
+
+        imagerLow[0] = lowL; imagerLow[1] = lowR;
+        imagerHighLp[0] = highLpL; imagerHighLp[1] = highLpR;
     }
 
     void processOversampledFinal (juce::AudioBuffer<float>& buffer)
@@ -460,34 +663,65 @@ private:
         auto up = oversampling->processSamplesUp (block);
 
         const float clipDrive = juce::Decibels::decibelsToGain (settings.clipDriveDb);
+        const float clipCeiling = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
+        const float clipMix = juce::jlimit (0.0f, 1.0f, settings.clipMix);
+        const float shape = juce::jlimit (0.0f, 1.0f, settings.clipShape);
+        const float k = juce::jmap (shape, 0.70f, 2.80f);
+        const float tanhNorm = juce::jmax (0.001f, std::tanh (k));
+
         const float limDrive = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
         const float ceiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
+        const double osRate = sampleRate * 4.0;
+        const float release = timeCoeff (settings.limiterReleaseMs, osRate);
 
-        for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
+        float maxReduction = 0.0f;
+
+        for (size_t i = 0; i < up.getNumSamples(); ++i)
         {
-            auto* d = up.getChannelPointer (ch);
-            for (size_t i = 0; i < up.getNumSamples(); ++i)
+            float peak = 0.0f;
+
+            for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
             {
+                auto* d = up.getChannelPointer (ch);
                 float x = d[i];
 
                 if (settings.clipperOn)
                 {
-                    const float driven = x * clipDrive;
-                    const float clipped = std::tanh (driven * 1.35f) / std::tanh (1.35f);
-                    x = juce::jmap (settings.clipMix, x, clipped);
+                    const float normalized = x * clipDrive / juce::jmax (0.05f, clipCeiling);
+                    const float soft = std::tanh (normalized * k) / tanhNorm * clipCeiling;
+                    x = x + (soft - x) * clipMix;
                 }
 
                 if (settings.limiterOn)
-                {
                     x *= limDrive;
-                    const float normalized = std::tanh (x / juce::jmax (0.05f, ceiling));
-                    x = normalized * ceiling;
-                }
+
+                if (! std::isfinite (x))
+                    x = 0.0f;
 
                 d[i] = x;
+                peak = juce::jmax (peak, std::abs (x));
+            }
+
+            if (settings.limiterOn)
+            {
+                const float target = peak > ceiling ? ceiling / juce::jmax (peak, 1.0e-9f) : 1.0f;
+                if (target < limiterGain)
+                    limiterGain = target;
+                else
+                    limiterGain = target + release * (limiterGain - target);
+
+                const float reductionDb = -juce::Decibels::gainToDecibels (juce::jmax (limiterGain, 1.0e-6f));
+                maxReduction = juce::jmax (maxReduction, reductionDb);
+
+                for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
+                {
+                    auto* d = up.getChannelPointer (ch);
+                    d[i] = juce::jlimit (-ceiling, ceiling, d[i] * limiterGain);
+                }
             }
         }
 
+        limiterReductionDb.store (maxReduction);
         oversampling->processSamplesDown (block);
     }
 
@@ -499,6 +733,17 @@ private:
             auto* d = buffer.getWritePointer (ch);
             for (int i = 0; i < buffer.getNumSamples(); ++i)
                 d[i] += (random.nextFloat() - random.nextFloat()) * lsb;
+        }
+    }
+
+    static void sanitize (juce::AudioBuffer<float>& buffer)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* d = buffer.getWritePointer (ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (! std::isfinite (d[i]))
+                    d[i] = 0.0f;
         }
     }
 
@@ -587,19 +832,31 @@ private:
     int numChannels = 2;
     int maxBlock = 512;
     int meterCounter = 0;
+
     float smartGainDb = 0.0f;
+    float lastInputGain = 1.0f;
+    float lastOutputGain = 1.0f;
+    float limiterGain = 1.0f;
     MasterSettings settings;
 
     Filter lowCut, lowShelf, lowMid, presence, air, resonanceFilter;
     juce::dsp::Compressor<float> glueComp;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     juce::AudioBuffer<float> dry;
+    juce::AudioBuffer<float> glueDry;
     juce::Random random;
 
     std::array<float, 2> lowDynState {};
+    std::array<float, 2> highDynState {};
+    std::array<float, 2> lowDynEnv {};
+    std::array<float, 2> highDynEnv {};
     std::array<float, 2> multibandLow {};
     std::array<float, 2> multibandHigh {};
     std::array<float, 2> bassLow {};
     std::array<float, 2> impactFast {};
     std::array<float, 2> impactSlow {};
+    std::array<float, 2> analogLp {};
+    std::array<float, 2> exciterLp {};
+    std::array<float, 2> imagerLow {};
+    std::array<float, 2> imagerHighLp {};
 };
