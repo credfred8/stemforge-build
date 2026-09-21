@@ -40,3 +40,5 @@ The VST3 bundle is generated under the JUCE artifacts directory. Run `MasterForg
 - Oversampled final processing is 4x to reduce aliasing and improve inter-sample peak handling.
 
 CI validates the DSP smoke test before packaging the Windows VST3 artifact.
+
+PR build trigger enabled on the default branch.
