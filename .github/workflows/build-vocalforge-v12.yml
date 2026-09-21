@@ -1,17 +1,17 @@
-name: Build VocalForge ONE v1.2 Windows
+name: Build VocalForge ONE v2 Windows
 
 on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'vocalforge_payload_v12/**'
-      - 'vocalforge-v12-trigger.txt'
+      - 'vocalforge_payload_v20/**'
+      - 'vocalforge-v20-trigger.txt'
   workflow_dispatch:
 
 jobs:
-  build-vocalforge-v12:
+  build-vocalforge-v20:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,37 +19,50 @@ jobs:
       - name: Restore source payload
         shell: pwsh
         run: |
-          $parts = Get-ChildItem -Path vocalforge_payload_v12 -Filter "part_*" | Sort-Object Name
-          if (-not $parts) { throw "VocalForge v1.2 payload parts not found" }
+          $parts = Get-ChildItem -Path vocalforge_payload_v20 -Filter "part_*" | Sort-Object Name
+          if (-not $parts) { throw "VocalForge v2 payload parts not found" }
           $payload = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          [IO.File]::WriteAllBytes('vocalforge-v12-src.tgz', [Convert]::FromBase64String($payload.Trim()))
-          New-Item -ItemType Directory -Force -Path vocalforge_v12 | Out-Null
-          tar -xzf vocalforge-v12-src.tgz -C vocalforge_v12
+          [IO.File]::WriteAllBytes('vocalforge-v20-src.tgz', [Convert]::FromBase64String($payload.Trim()))
+          tar -xzf vocalforge-v20-src.tgz
+          if (-not (Test-Path vocalforge_v2/CMakeLists.txt)) { throw "Source restore failed" }
 
       - name: Configure
         shell: pwsh
-        run: cmake -S vocalforge_v12 -B vocalforge_v12/build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S vocalforge_v2 -B vocalforge_v2/build -G "Visual Studio 17 2022" -A x64
 
       - name: Build VST3 and Standalone
         shell: pwsh
-        run: cmake --build vocalforge_v12/build --config Release --target VocalForgeOne_VST3 VocalForgeOne_Standalone --parallel 2
+        run: cmake --build vocalforge_v2/build --config Release --target VocalForgeOne_VST3 VocalForgeOne_Standalone --parallel 2
 
       - name: Stage binaries
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path vocalforge_v12/dist | Out-Null
-          $vst = Get-ChildItem -Path vocalforge_v12/build -Recurse -Filter "VocalForge ONE.vst3" | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path vocalforge_v2/dist | Out-Null
+          $vst = Get-ChildItem -Path vocalforge_v2/build -Recurse -Directory -Filter "VocalForge ONE.vst3" | Select-Object -First 1
           if (-not $vst) { throw "VST3 bundle not found" }
-          Copy-Item -Recurse -Force $vst.FullName vocalforge_v12/dist/
-          $exe = Get-ChildItem -Path vocalforge_v12/build -Recurse -Filter "VocalForge ONE.exe" | Select-Object -First 1
+          Copy-Item -Recurse -Force $vst.FullName vocalforge_v2/dist/
+          $exe = Get-ChildItem -Path vocalforge_v2/build -Recurse -File -Filter "VocalForge ONE.exe" | Select-Object -First 1
           if (-not $exe) { throw "Standalone EXE not found" }
-          Copy-Item -Force $exe.FullName "vocalforge_v12/dist/VocalForge ONE.exe"
-          Copy-Item -Force vocalforge_v12/README.md vocalforge_v12/dist/README.txt
+          Copy-Item -Force $exe.FullName "vocalforge_v2/dist/VocalForge ONE.exe"
+          @"
+          VocalForge ONE v2.0 PRO
+          Windows x64 / VST3 + Standalone
 
-      - name: Upload VocalForge v1.2
+          VST3: copy the VocalForge ONE.vst3 bundle to your VST3 folder and rescan in the DAW.
+          Standalone: open VocalForge ONE.exe, load WAV/MP3, choose a preset, and audition the chain.
+          "@ | Set-Content -Encoding UTF8 vocalforge_v2/dist/README.txt
+
+      - name: Hash binaries
+        shell: pwsh
+        run: |
+          Get-FileHash "vocalforge_v2/dist/VocalForge ONE.exe" -Algorithm SHA256 | Format-List | Out-File vocalforge_v2/dist/SHA256.txt
+          $bin = Get-ChildItem "vocalforge_v2/dist/VocalForge ONE.vst3" -Recurse -File | Where-Object { $_.Extension -eq '.vst3' -or $_.Name -like '*.dll' } | Select-Object -First 1
+          if ($bin) { Get-FileHash $bin.FullName -Algorithm SHA256 | Format-List | Out-File -Append vocalforge_v2/dist/SHA256.txt }
+
+      - name: Upload VocalForge v2
         uses: actions/upload-artifact@v4
         with:
-          name: VocalForge-ONE-v1.2-Windows-x64
-          path: vocalforge_v12/dist
+          name: VocalForge-ONE-v2.0-PRO-Windows-x64
+          path: vocalforge_v2/dist
           if-no-files-found: error
           compression-level: 9
