@@ -16,16 +16,19 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "VocalForge ONE"; }
+    const juce::String getName() const override { return "VocalForge ONE 2.2"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 2.0; }
 
-    int getNumPrograms() override { return (int) presetNames.size(); }
-    int getCurrentProgram() override { return currentPreset; }
-    void setCurrentProgram (int index) override;
-    const juce::String getProgramName (int index) override;
+    // Keep host program handling intentionally simple.
+    // Factory presets live inside the plugin UI, avoiding host re-entrancy
+    // during FL Studio's plugin initialisation/state restore.
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram (int) override {}
+    const juce::String getProgramName (int) override { return "Default"; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -35,6 +38,7 @@ public:
     VocalEngine engine;
     void applyPreset (int index);
     int getPresetIndex() const { return currentPreset; }
+
     const std::array<juce::String, 8> presetNames {
         "Male Rap - MID-TOP FORWARD",
         "Male Rap - AGGRESSIVE-GRIT",
@@ -50,5 +54,7 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     VocalSettings readSettings() const;
     int currentPreset = 0;
+    std::atomic<bool> prepared { false };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VocalForgeAudioProcessor)
 };

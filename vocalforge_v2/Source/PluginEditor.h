@@ -1,73 +1,24 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "PremiumUI.h"
 
-class EQDisplay : public juce::Component, private juce::Timer
+class AnalyzerPanel : public juce::Component, private juce::Timer
 {
 public:
-    EQDisplay (VocalForgeAudioProcessor& p) : proc (p)
-    {
-        startTimerHz (30);
-    }
+    explicit AnalyzerPanel (VocalForgeAudioProcessor& p) : proc (p) { startTimerHz (30); }
+    void paint (juce::Graphics&) override;
 
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds().toFloat();
-        g.setColour (juce::Colour (0xff12151b));
-        g.fillRoundedRectangle (r, 10.0f);
+private:
+    void timerCallback() override { repaint(); }
+    VocalForgeAudioProcessor& proc;
+};
 
-        g.setColour (juce::Colour (0xff2b313d));
-        for (int i = 1; i < 6; ++i)
-        {
-            auto x = r.getX() + r.getWidth() * (float) i / 6.0f;
-            g.drawVerticalLine ((int) x, r.getY() + 8.0f, r.getBottom() - 8.0f);
-        }
-        for (int i = 1; i < 4; ++i)
-        {
-            auto y = r.getY() + r.getHeight() * (float) i / 4.0f;
-            g.drawHorizontalLine ((int) y, r.getX() + 8.0f, r.getRight() - 8.0f);
-        }
-
-        auto* body = proc.apvts.getRawParameterValue ("body");
-        auto* presence = proc.apvts.getRawParameterValue ("presence");
-        auto* air = proc.apvts.getRawParameterValue ("air");
-        auto* lowcut = proc.apvts.getRawParameterValue ("lowcut");
-
-        juce::Path p;
-        for (int px = 0; px < getWidth(); ++px)
-        {
-            const float norm = (float) px / juce::jmax (1, getWidth() - 1);
-            const float freq = 20.0f * std::pow (1000.0f, norm);
-            float db = 0.0f;
-            const float lc = lowcut->load();
-            if (freq < lc)
-                db -= juce::jlimit (0.0f, 24.0f, 24.0f * std::log2 (lc / juce::jmax (20.0f, freq)));
-            auto bell = [] (float f, float c, float width)
-            {
-                const float x = std::log2 (f / c) / width;
-                return std::exp (-0.5f * x * x);
-            };
-            db += body->load() * bell (freq, 180.0f, 0.85f);
-            db += presence->load() * bell (freq, 3300.0f, 0.72f);
-            db += air->load() * juce::jlimit (0.0f, 1.0f, std::log2 (freq / 7000.0f) + 0.5f);
-            const float y = juce::jmap (juce::jlimit (-18.0f, 18.0f, db), -18.0f, 18.0f, r.getBottom() - 8.0f, r.getY() + 8.0f);
-            if (px == 0) p.startNewSubPath ((float) px, y);
-            else p.lineTo ((float) px, y);
-        }
-
-        g.setColour (juce::Colour (0xff7dd3fc));
-        g.strokePath (p, juce::PathStrokeType (2.2f));
-
-        const float rms = juce::jlimit (0.0f, 1.0f, proc.engine.meterRms.load() * 3.0f);
-        const float peak = juce::jlimit (0.0f, 1.0f, proc.engine.meterPeak.load());
-        auto meter = r.removeFromRight (10.0f).reduced (2.0f, 6.0f);
-        g.setColour (juce::Colour (0xff253041)); g.fillRect (meter);
-        g.setColour (juce::Colour (0xff38bdf8));
-        g.fillRect (meter.withTop (meter.getBottom() - meter.getHeight() * rms));
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.fillRect (meter.withTop (meter.getBottom() - meter.getHeight() * peak).withHeight (1.5f));
-    }
-
+class MeterPanel : public juce::Component, private juce::Timer
+{
+public:
+    explicit MeterPanel (VocalForgeAudioProcessor& p) : proc (p) { startTimerHz (30); }
+    void paint (juce::Graphics&) override;
 private:
     void timerCallback() override { repaint(); }
     VocalForgeAudioProcessor& proc;
@@ -77,7 +28,7 @@ class VocalForgeAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit VocalForgeAudioProcessorEditor (VocalForgeAudioProcessor&);
-    ~VocalForgeAudioProcessorEditor() override = default;
+    ~VocalForgeAudioProcessorEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -85,21 +36,62 @@ public:
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
 
-    struct Knob
+    struct ParamControl
     {
         juce::Slider slider;
-        juce::Label label;
+        juce::Label title;
+        juce::Label valueHint;
         std::unique_ptr<SliderAttachment> attachment;
     };
 
-    void setupKnob (Knob&, const juce::String& paramID, const juce::String& text, const juce::String& suffix = {});
-    VocalForgeAudioProcessor& processor;
-    EQDisplay eqDisplay;
-    juce::ComboBox presetBox;
+    void setupParam (ParamControl&, const juce::String& id, const juce::String& title,
+                     const juce::String& tooltip, const juce::String& suffix = {});
+    void setModuleSelected (int index);
 
-    std::array<Knob, 12> knobs;
-    const std::array<juce::String,12> ids { "lowcut","body","presence","air","deess","comp","leveler","parallel","sat","grit","doubler","width" };
-    const std::array<juce::String,12> names { "LOW CUT","BODY","PRESENCE","AIR","DE-ESS","PEAK COMP","LEVELER","PARALLEL","SATURATION","GRIT","DOUBLER","WIDTH" };
+    VocalForgeAudioProcessor& processor;
+    VocalForgeUI::PremiumLookAndFeel laf;
+
+    juce::Label brand, edition, chainLabel, sectionTitle, sectionDescription;
+    juce::ComboBox presetBox;
+    juce::TextButton abButton { "A/B" }, globalBypass { "BYPASS" };
+
+    AnalyzerPanel analyzer;
+    MeterPanel meters;
+
+    std::array<std::unique_ptr<VocalForgeUI::ModuleTile>, 12> modules;
+    std::array<ParamControl, 12> params;
+
+    const std::array<juce::String, 12> moduleNames {
+        "CLEAN", "GATE", "EQ", "DE-ESS", "PEAK COMP", "LEVELER",
+        "PARALLEL", "SATURATION", "DOUBLER", "SPACE", "WIDTH", "LIMIT"
+    };
+
+    const std::array<juce::String, 12> moduleTips {
+        "Cleans low-frequency rumble and unwanted buildup before dynamics.",
+        "Reduces room noise and headphone bleed between phrases.",
+        "Shapes body, presence and air. Central graph shows the active curve.",
+        "Controls harsh S and T consonants without dulling the whole vocal.",
+        "Fast peak compression for punch, stability and close-up vocal density.",
+        "Slower leveling stage that keeps phrases sitting consistently in the mix.",
+        "Adds a heavily compressed signal in parallel for density without flattening transients.",
+        "Adds controlled harmonics and grit to make the vocal feel larger and more expensive.",
+        "Creates short offset voices that can be blended under the lead to add width and thickness.",
+        "Delay and short ambience for depth while keeping the vocal forward.",
+        "Controls stereo spread after modulation and ambience.",
+        "Final peak protection and output control before the DAW channel."
+    };
+
+    const std::array<juce::String, 12> paramIds {
+        "lowcut","gate","body","deess","comp","leveler",
+        "parallel","sat","doubler","reverb","width","output"
+    };
+
+    const std::array<juce::String, 12> paramNames {
+        "LOW CUT","THRESHOLD","BODY","DE-ESS","PEAK COMP","LEVELER",
+        "PARALLEL","SATURATION","DOUBLER MIX","AMBIENCE","WIDTH","OUTPUT"
+    };
+
+    int selectedModule = 2;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VocalForgeAudioProcessorEditor)
 };
