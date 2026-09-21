@@ -37,39 +37,39 @@ juce::AudioProcessorValueTreeState::ParameterLayout MasterForgeAudioProcessor::c
     l.add (std::make_unique<FloatP> ("air", "Air", dbRange (-6.0f, 8.0f), 0.8f));
 
     l.add (std::make_unique<BoolP> ("dynamicEqOn", "Dynamic EQ", true));
-    l.add (std::make_unique<FloatP> ("dynamicEq", "Dynamic EQ Amount", { 0.0f, 1.0f, 0.001f }, 0.30f));
+    l.add (std::make_unique<FloatP> ("dynamicEq", "Dynamic EQ Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.30f));
 
     l.add (std::make_unique<BoolP> ("resonanceOn", "Resonance Control", true));
-    l.add (std::make_unique<FloatP> ("resonance", "Resonance Amount", { 0.0f, 1.0f, 0.001f }, 0.22f));
+    l.add (std::make_unique<FloatP> ("resonance", "Resonance Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.22f));
 
     l.add (std::make_unique<BoolP> ("glueOn", "Glue Compressor", true));
-    l.add (std::make_unique<FloatP> ("glue", "Glue Amount", { 0.0f, 1.0f, 0.001f }, 0.35f));
+    l.add (std::make_unique<FloatP> ("glue", "Glue Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.35f));
 
     l.add (std::make_unique<BoolP> ("multibandOn", "Multiband Dynamics", true));
-    l.add (std::make_unique<FloatP> ("multiband", "Multiband Amount", { 0.0f, 1.0f, 0.001f }, 0.30f));
+    l.add (std::make_unique<FloatP> ("multiband", "Multiband Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.30f));
 
     l.add (std::make_unique<BoolP> ("impactOn", "Impact", true));
-    l.add (std::make_unique<FloatP> ("impact", "Impact Amount", { 0.0f, 1.0f, 0.001f }, 0.30f));
+    l.add (std::make_unique<FloatP> ("impact", "Impact Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.30f));
 
     l.add (std::make_unique<BoolP> ("analogOn", "Analog Color", true));
-    l.add (std::make_unique<FloatP> ("analog", "Analog Amount", { 0.0f, 1.0f, 0.001f }, 0.16f));
+    l.add (std::make_unique<FloatP> ("analog", "Analog Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.16f));
 
     l.add (std::make_unique<BoolP> ("exciterOn", "Exciter", true));
-    l.add (std::make_unique<FloatP> ("exciter", "Exciter Amount", { 0.0f, 1.0f, 0.001f }, 0.12f));
+    l.add (std::make_unique<FloatP> ("exciter", "Exciter Amount", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.12f));
 
     l.add (std::make_unique<BoolP> ("bassMonoOn", "Bass Mono", true));
-    l.add (std::make_unique<FloatP> ("bassMonoHz", "Bass Mono Frequency", { 45.0f, 220.0f, 1.0f }, 115.0f));
+    l.add (std::make_unique<FloatP> ("bassMonoHz", "Bass Mono Frequency", juce::NormalisableRange<float> (45.0f, 220.0f, 1.0f), 115.0f));
 
     l.add (std::make_unique<BoolP> ("imagerOn", "Stereo Imager", true));
-    l.add (std::make_unique<FloatP> ("widthLow", "Low Width", { 0.0f, 1.5f, 0.001f }, 0.92f));
-    l.add (std::make_unique<FloatP> ("widthMid", "Mid Width", { 0.0f, 1.8f, 0.001f }, 1.02f));
-    l.add (std::make_unique<FloatP> ("widthHigh", "High Width", { 0.0f, 2.0f, 0.001f }, 1.08f));
+    l.add (std::make_unique<FloatP> ("widthLow", "Low Width", juce::NormalisableRange<float> (0.0f, 1.5f, 0.001f), 0.92f));
+    l.add (std::make_unique<FloatP> ("widthMid", "Mid Width", juce::NormalisableRange<float> (0.0f, 1.8f, 0.001f), 1.02f));
+    l.add (std::make_unique<FloatP> ("widthHigh", "High Width", juce::NormalisableRange<float> (0.0f, 2.0f, 0.001f), 1.08f));
 
-    l.add (std::make_unique<FloatP> ("dryWet", "Dry Wet", { 0.0f, 1.0f, 0.001f }, 1.0f));
+    l.add (std::make_unique<FloatP> ("dryWet", "Dry Wet", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 1.0f));
 
     l.add (std::make_unique<BoolP> ("clipperOn", "Clipper", true));
     l.add (std::make_unique<FloatP> ("clipDrive", "Clipper Drive", dbRange (0.0f, 12.0f), 1.5f));
-    l.add (std::make_unique<FloatP> ("clipMix", "Clipper Mix", { 0.0f, 1.0f, 0.001f }, 1.0f));
+    l.add (std::make_unique<FloatP> ("clipMix", "Clipper Mix", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 1.0f));
 
     l.add (std::make_unique<BoolP> ("limiterOn", "Maximizer", true));
     l.add (std::make_unique<FloatP> ("limiterDrive", "Maximizer Drive", dbRange (0.0f, 14.0f), 3.0f));
