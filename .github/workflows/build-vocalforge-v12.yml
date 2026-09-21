@@ -6,6 +6,12 @@ on:
     paths:
       - 'vocalforge_v2/**'
       - '.github/workflows/build-vocalforge-v12.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'vocalforge_v2/**'
+      - 'vocalforge-v20-trigger.txt'
+      - '.github/workflows/build-vocalforge-v12.yml'
   workflow_dispatch:
 
 jobs:
