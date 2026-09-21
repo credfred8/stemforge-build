@@ -1,0 +1,1 @@
+Trigger VocalForge ONE Windows VST3 validation build.
