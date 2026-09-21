@@ -24,7 +24,7 @@ jobs:
 
       - name: Configure Windows x64
         shell: pwsh
-        run: cmake -S masterforge_one -B masterforge_one/build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S masterforge_one -B masterforge_one/build -G "Visual Studio 18 2026" -A x64
 
       - name: Build smoke test
         shell: pwsh
