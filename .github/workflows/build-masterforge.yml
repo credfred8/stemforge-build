@@ -1,0 +1,60 @@
+name: Build MasterForge ONE VST3
+
+on:
+  push:
+    branches: [ masterforge-one ]
+    paths:
+      - 'masterforge_one/**'
+      - '.github/workflows/build-masterforge.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'masterforge_one/**'
+      - '.github/workflows/build-masterforge.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows-vst3:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Windows x64
+        shell: pwsh
+        run: cmake -S masterforge_one -B masterforge_one/build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build smoke test
+        shell: pwsh
+        run: cmake --build masterforge_one/build --config Release --target MasterForgeSmoke --parallel 2
+
+      - name: Run DSP smoke test
+        shell: pwsh
+        run: |
+          $smoke = Get-ChildItem -Path masterforge_one/build -Recurse -Filter "MasterForgeSmoke.exe" | Select-Object -First 1
+          if (-not $smoke) { throw "MasterForgeSmoke.exe not found" }
+          & $smoke.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build VST3
+        shell: pwsh
+        run: cmake --build masterforge_one/build --config Release --target MasterForgeOne_VST3 --parallel 2
+
+      - name: Stage VST3 bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path masterforge_one/dist | Out-Null
+          $vst3 = Get-ChildItem -Path masterforge_one/build -Recurse -Directory -Filter "MasterForge ONE.vst3" | Select-Object -First 1
+          if (-not $vst3) { throw "MasterForge ONE.vst3 bundle not found" }
+          Copy-Item -Recurse -Force $vst3.FullName "masterforge_one/dist/MasterForge ONE.vst3"
+          Copy-Item -Force "masterforge_one/README.md" "masterforge_one/dist/README.md"
+
+      - name: Upload Windows VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: MasterForge-ONE-Windows-x64-VST3
+          path: masterforge_one/dist
+          if-no-files-found: error
+          compression-level: 9
