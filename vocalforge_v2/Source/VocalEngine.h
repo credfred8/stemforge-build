@@ -213,10 +213,10 @@ private:
     void updateFilters()
     {
         if (sampleRate <= 0.0) return;
-        *hp.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, juce::jlimit (45.0f, 180.0f, settings.lowCutHz), 0.707f);
-        *body.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 180.0, 0.8f, juce::Decibels::decibelsToGain (settings.bodyDb));
-        *presence.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 3300.0, 0.95f, juce::Decibels::decibelsToGain (settings.presenceDb));
-        *air.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (sampleRate, 9500.0, 0.72f, juce::Decibels::decibelsToGain (settings.airDb));
+        hp.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, juce::jlimit (45.0f, 180.0f, settings.lowCutHz), 0.707f);
+        body.coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 180.0, 0.8f, juce::Decibels::decibelsToGain (settings.bodyDb));
+        presence.coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 3300.0, 0.95f, juce::Decibels::decibelsToGain (settings.presenceDb));
+        air.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf (sampleRate, 9500.0, 0.72f, juce::Decibels::decibelsToGain (settings.airDb));
     }
 
     void applyDoublerDelay (juce::AudioBuffer<float>& buffer)
