@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(VocalForgeOne VERSION 2.0.0 LANGUAGES C CXX)
+project(VocalForgeOne VERSION 2.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,11 +14,11 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(VocalForgeOne
   COMPANY_NAME "Golden Light Audio"
-  BUNDLE_ID "com.goldenlightaudio.vocalforgeone"
+  BUNDLE_ID "com.goldenlightaudio.vocalforgeone.v22"
   PLUGIN_MANUFACTURER_CODE GlAu
-  PLUGIN_CODE Vfo2
+  PLUGIN_CODE Vf22
   FORMATS VST3
-  PRODUCT_NAME "VocalForge ONE"
+  PRODUCT_NAME "VocalForge ONE 2.2"
   COPY_PLUGIN_AFTER_BUILD FALSE
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT FALSE
