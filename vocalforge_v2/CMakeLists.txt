@@ -27,6 +27,8 @@ juce_add_plugin(VocalForgeOne
   EDITOR_WANTS_KEYBOARD_FOCUS FALSE
 )
 
+juce_generate_juce_header(VocalForgeOne)
+
 target_sources(VocalForgeOne PRIVATE
   Source/PluginProcessor.cpp
   Source/PluginProcessor.h
@@ -57,6 +59,8 @@ juce_add_gui_app(VocalForgeOne_Standalone
   COMPANY_NAME "Golden Light Audio"
   BUNDLE_ID "com.goldenlightaudio.vocalforgeone.standalone"
 )
+
+juce_generate_juce_header(VocalForgeOne_Standalone)
 
 target_sources(VocalForgeOne_Standalone PRIVATE
   Source/StandaloneMain.cpp
