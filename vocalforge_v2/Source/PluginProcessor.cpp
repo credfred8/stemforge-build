@@ -1,72 +1,133 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    constexpr int stateSchemaVersion = 2;
+}
+
 VocalForgeAudioProcessor::VocalForgeAudioProcessor()
     : AudioProcessor (BusesProperties()
         .withInput ("Input", juce::AudioChannelSet::stereo(), true)
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PARAMETERS", createLayout())
+      apvts (*this, nullptr, "VOCALFORGE_STATE", createLayout())
 {
-    applyPreset (0);
+    // IMPORTANT:
+    // Do not call setValueNotifyingHost() from the processor constructor.
+    // FL Studio can still be constructing its VST3 wrapper at this point.
+    // Parameter defaults below already represent factory preset #0.
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout VocalForgeAudioProcessor::createLayout()
 {
     using P = juce::AudioParameterFloat;
+    using R = juce::NormalisableRange<float>;
+    auto id = [] (const char* s) { return juce::ParameterID { s, 1 }; };
+
     juce::AudioProcessorValueTreeState::ParameterLayout l;
-    l.add (std::make_unique<P> ("input", "Input", juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f), 0.0f));
-    l.add (std::make_unique<P> ("gate", "Gate", juce::NormalisableRange<float> (-75.0f, -25.0f, 0.1f), -52.0f));
-    l.add (std::make_unique<P> ("lowcut", "Low Cut", juce::NormalisableRange<float> (45.0f, 180.0f, 1.0f), 75.0f));
-    l.add (std::make_unique<P> ("body", "Body", juce::NormalisableRange<float> (-8.0f, 8.0f, 0.1f), 0.0f));
-    l.add (std::make_unique<P> ("presence", "Presence", juce::NormalisableRange<float> (-8.0f, 10.0f, 0.1f), 2.0f));
-    l.add (std::make_unique<P> ("air", "Air", juce::NormalisableRange<float> (-4.0f, 12.0f, 0.1f), 2.5f));
-    l.add (std::make_unique<P> ("deess", "De-Esser", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.45f));
-    l.add (std::make_unique<P> ("comp", "Peak Comp", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.55f));
-    l.add (std::make_unique<P> ("leveler", "Leveler", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.40f));
-    l.add (std::make_unique<P> ("parallel", "Parallel", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.22f));
-    l.add (std::make_unique<P> ("sat", "Saturation", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.16f));
-    l.add (std::make_unique<P> ("grit", "Grit", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.10f));
-    l.add (std::make_unique<P> ("doubler", "Doubler", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.16f));
-    l.add (std::make_unique<P> ("width", "Width", juce::NormalisableRange<float> (0.55f, 1.65f, 0.001f), 1.05f));
-    l.add (std::make_unique<P> ("delay", "Delay", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.05f));
-    l.add (std::make_unique<P> ("reverb", "Reverb", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.06f));
-    l.add (std::make_unique<P> ("output", "Output", juce::NormalisableRange<float> (-18.0f, 6.0f, 0.1f), -0.5f));
+
+    // Defaults are the Male Rap - MID-TOP FORWARD preset, so startup needs
+    // no host notifications and is deterministic in FL Studio.
+    l.add (std::make_unique<P> (id("input"),    "Input",       R(-18.0f, 18.0f, 0.1f),   1.0f));
+    l.add (std::make_unique<P> (id("gate"),     "Gate",        R(-75.0f,-25.0f, 0.1f), -54.0f));
+    l.add (std::make_unique<P> (id("lowcut"),   "Low Cut",     R(45.0f, 180.0f, 1.0f),  82.0f));
+    l.add (std::make_unique<P> (id("body"),     "Body",        R(-8.0f,   8.0f, 0.1f),  -1.2f));
+    l.add (std::make_unique<P> (id("presence"), "Presence",    R(-8.0f,  10.0f, 0.1f),   4.2f));
+    l.add (std::make_unique<P> (id("air"),      "Air",         R(-4.0f,  12.0f, 0.1f),   4.8f));
+    l.add (std::make_unique<P> (id("deess"),    "De-Esser",    R(0.0f,    1.0f, 0.001f), 0.52f));
+    l.add (std::make_unique<P> (id("comp"),     "Peak Comp",   R(0.0f,    1.0f, 0.001f), 0.64f));
+    l.add (std::make_unique<P> (id("leveler"),  "Leveler",     R(0.0f,    1.0f, 0.001f), 0.46f));
+    l.add (std::make_unique<P> (id("parallel"), "Parallel",    R(0.0f,    1.0f, 0.001f), 0.28f));
+    l.add (std::make_unique<P> (id("sat"),      "Saturation",  R(0.0f,    1.0f, 0.001f), 0.18f));
+    l.add (std::make_unique<P> (id("grit"),     "Grit",        R(0.0f,    1.0f, 0.001f), 0.12f));
+    l.add (std::make_unique<P> (id("doubler"),  "Doubler",     R(0.0f,    1.0f, 0.001f), 0.18f));
+    l.add (std::make_unique<P> (id("width"),    "Width",       R(0.55f,   1.65f,0.001f), 1.08f));
+    l.add (std::make_unique<P> (id("delay"),    "Delay",       R(0.0f,    1.0f, 0.001f), 0.035f));
+    l.add (std::make_unique<P> (id("reverb"),   "Reverb",      R(0.0f,    1.0f, 0.001f), 0.045f));
+    l.add (std::make_unique<P> (id("output"),   "Output",      R(-18.0f,  6.0f, 0.1f),  -0.7f));
+
     return l;
 }
 
 void VocalForgeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    engine.prepare (sampleRate, samplesPerBlock, getTotalNumOutputChannels());
+    prepared.store (false, std::memory_order_release);
+
+    const auto safeRate = juce::jlimit (8000.0, 384000.0, sampleRate);
+    const auto safeBlock = juce::jlimit (1, 32768, samplesPerBlock);
+
+    engine.prepare (safeRate, safeBlock, juce::jmax (1, getTotalNumOutputChannels()));
     engine.setSettings (readSettings());
+
+    prepared.store (true, std::memory_order_release);
 }
 
-void VocalForgeAudioProcessor::releaseResources() {}
+void VocalForgeAudioProcessor::releaseResources()
+{
+    prepared.store (false, std::memory_order_release);
+    engine.reset();
+}
 
 bool VocalForgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    auto out = layouts.getMainOutputChannelSet();
-    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo()) return false;
-    return layouts.getMainInputChannelSet() == out;
+    const auto in  = layouts.getMainInputChannelSet();
+    const auto out = layouts.getMainOutputChannelSet();
+
+    // FL Studio normally uses stereo/stereo, but accepting mono/mono also
+    // keeps the plugin valid in other vocal routing scenarios.
+    if (in != juce::AudioChannelSet::mono() && in != juce::AudioChannelSet::stereo())
+        return false;
+
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+
+    return in == out;
 }
 
 VocalSettings VocalForgeAudioProcessor::readSettings() const
 {
     VocalSettings s;
-    auto g = [this](const char* id){ return apvts.getRawParameterValue (id)->load(); };
-    s.inputDb = g("input"); s.gateDb = g("gate"); s.lowCutHz = g("lowcut");
-    s.bodyDb = g("body"); s.presenceDb = g("presence"); s.airDb = g("air");
-    s.deEss = g("deess"); s.comp = g("comp"); s.leveler = g("leveler");
-    s.parallel = g("parallel"); s.saturation = g("sat"); s.grit = g("grit");
-    s.doubler = g("doubler"); s.width = g("width"); s.delay = g("delay");
-    s.reverb = g("reverb"); s.outputDb = g("output");
+
+    auto g = [this] (const char* paramId, float fallback)
+    {
+        if (auto* v = apvts.getRawParameterValue (paramId))
+            return v->load();
+        return fallback;
+    };
+
+    s.inputDb    = g("input", 1.0f);
+    s.gateDb     = g("gate", -54.0f);
+    s.lowCutHz   = g("lowcut", 82.0f);
+    s.bodyDb     = g("body", -1.2f);
+    s.presenceDb = g("presence", 4.2f);
+    s.airDb      = g("air", 4.8f);
+    s.deEss      = g("deess", 0.52f);
+    s.comp       = g("comp", 0.64f);
+    s.leveler    = g("leveler", 0.46f);
+    s.parallel   = g("parallel", 0.28f);
+    s.saturation = g("sat", 0.18f);
+    s.grit       = g("grit", 0.12f);
+    s.doubler    = g("doubler", 0.18f);
+    s.width      = g("width", 1.08f);
+    s.delay      = g("delay", 0.035f);
+    s.reverb     = g("reverb", 0.045f);
+    s.outputDb   = g("output", -0.7f);
+
     return s;
 }
 
 void VocalForgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
         buffer.clear (ch, 0, buffer.getNumSamples());
+
+    // Some hosts probe processors in unusual orders during scan/load.
+    // Never touch unprepared DSP state.
+    if (! prepared.load (std::memory_order_acquire) || buffer.getNumSamples() <= 0)
+        return;
+
     engine.setSettings (readSettings());
     engine.process (buffer);
 }
@@ -88,10 +149,15 @@ void VocalForgeAudioProcessor::applyPreset (int index)
         case 7: s = { 0.0f,-52.0f,125.0f,-2.6f,3.4f,5.0f,0.58f,0.66f,0.40f,0.18f,0.19f,0.20f,0.32f,1.34f,0.24f,0.22f,-1.0f }; break;
     }
 
-    auto set = [this](const char* id, float value)
+    auto set = [this] (const char* paramId, float value)
     {
-        if (auto* p = apvts.getParameter (id))
-            p->setValueNotifyingHost (p->convertTo0to1 (value));
+        if (auto* p = apvts.getParameter (paramId))
+        {
+            const float normalised = p->convertTo0to1 (value);
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (normalised);
+            p->endChangeGesture();
+        }
     };
 
     set("input",s.inputDb); set("gate",s.gateDb); set("lowcut",s.lowCutHz);
@@ -102,28 +168,37 @@ void VocalForgeAudioProcessor::applyPreset (int index)
     set("reverb",s.reverb); set("output",s.outputDb);
 }
 
-void VocalForgeAudioProcessor::setCurrentProgram (int index) { applyPreset (index); }
-const juce::String VocalForgeAudioProcessor::getProgramName (int index)
-{
-    return presetNames[(size_t) juce::jlimit (0, (int) presetNames.size() - 1, index)];
-}
-
 void VocalForgeAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    state.setProperty ("preset", currentPreset, nullptr);
-    if (auto xml = state.createXml()) copyXmlToBinary (*xml, destData);
+    state.setProperty ("schemaVersion", stateSchemaVersion, nullptr);
+    state.setProperty ("preset", juce::jlimit (0, 7, currentPreset), nullptr);
+
+    if (auto xml = state.createXml())
+        copyXmlToBinary (*xml, destData);
 }
 
 void VocalForgeAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
-        {
-            auto state = juce::ValueTree::fromXml (*xml);
-            currentPreset = (int) state.getProperty ("preset", 0);
-            apvts.replaceState (state);
-        }
+    // Defensive state restore: ignore empty, absurd or incompatible chunks.
+    // This also prevents old v2.0/v2.1 FL cache state from destabilising v2.2.
+    if (data == nullptr || sizeInBytes <= 0 || sizeInBytes > 8 * 1024 * 1024)
+        return;
+
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return;
+
+    auto state = juce::ValueTree::fromXml (*xml);
+    if (! state.isValid())
+        return;
+
+    const int version = (int) state.getProperty ("schemaVersion", 0);
+    if (version != stateSchemaVersion)
+        return;
+
+    currentPreset = juce::jlimit (0, 7, (int) state.getProperty ("preset", 0));
+    apvts.replaceState (state);
 }
 
 juce::AudioProcessorEditor* VocalForgeAudioProcessor::createEditor()
