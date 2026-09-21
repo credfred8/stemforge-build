@@ -1,11 +1,11 @@
 name: Build VocalForge ONE v2 Windows
 
 on:
-  pull_request:
+  push:
     branches: [ main ]
     paths:
-      - 'vocalforge_payload_v20/**'
-      - 'vocalforge-v20-trigger.txt'
+      - 'vocalforge_v2/**'
+      - '.github/workflows/build-vocalforge-v12.yml'
   workflow_dispatch:
 
 jobs:
@@ -15,16 +15,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Restore source payload
-        shell: pwsh
-        run: |
-          $parts = Get-ChildItem -Path vocalforge_payload_v20 -Filter "part_*" | Sort-Object Name
-          if (-not $parts) { throw "VocalForge v2 payload parts not found" }
-          $payload = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          [IO.File]::WriteAllBytes('vocalforge-v20-src.tgz', [Convert]::FromBase64String($payload.Trim()))
-          tar -xzf vocalforge-v20-src.tgz
-          if (-not (Test-Path vocalforge_v2/CMakeLists.txt)) { throw "Source restore failed" }
 
       - name: Configure
         shell: pwsh
@@ -49,14 +39,14 @@ jobs:
           Windows x64 / VST3 + Standalone
 
           VST3: copy the VocalForge ONE.vst3 bundle to your VST3 folder and rescan in the DAW.
-          Standalone: open VocalForge ONE.exe, load WAV/MP3, choose a preset, and audition the chain.
+          Standalone: open VocalForge ONE.exe, load WAV/MP3, choose a preset, and audition the same vocal engine.
           "@ | Set-Content -Encoding UTF8 vocalforge_v2/dist/README.txt
 
       - name: Hash binaries
         shell: pwsh
         run: |
           Get-FileHash "vocalforge_v2/dist/VocalForge ONE.exe" -Algorithm SHA256 | Format-List | Out-File vocalforge_v2/dist/SHA256.txt
-          $bin = Get-ChildItem "vocalforge_v2/dist/VocalForge ONE.vst3" -Recurse -File | Where-Object { $_.Extension -eq '.vst3' -or $_.Name -like '*.dll' } | Select-Object -First 1
+          $bin = Get-ChildItem "vocalforge_v2/dist/VocalForge ONE.vst3" -Recurse -File | Select-Object -First 1
           if ($bin) { Get-FileHash $bin.FullName -Algorithm SHA256 | Format-List | Out-File -Append vocalforge_v2/dist/SHA256.txt }
 
       - name: Upload VocalForge v2
