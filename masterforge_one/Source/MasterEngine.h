@@ -176,8 +176,22 @@ public:
         clipOversampling->initProcessing ((size_t) maxBlock);
         limitOversampling->initProcessing ((size_t) maxBlock);
 
-        lookaheadSamplesOs = juce::jmax (8, (int) std::ceil (sampleRate * 8.0 * 0.0015));
+        const double limiterRate = sampleRate * 8.0;
+        juce::dsp::ProcessSpec limiterSpec {
+            limiterRate,
+            (juce::uint32) (maxBlock * 8),
+            (juce::uint32) numChannels
+        };
+        limiterSplit1.prepare (limiterSpec);
+        limiterSplit2.prepare (limiterSpec);
+        limiterSplit3.prepare (limiterSpec);
+        limiterSplit1.setCutoffFrequency (140.0f);
+        limiterSplit2.setCutoffFrequency (1400.0f);
+        limiterSplit3.setCutoffFrequency (6200.0f);
+
+        lookaheadSamplesOs = juce::jmax (8, (int) std::ceil (limiterRate * 0.0015));
         lookaheadRing.assign ((size_t) numChannels * (size_t) lookaheadSamplesOs, 0.0f);
+        limiterBandRing.assign ((size_t) 4 * (size_t) numChannels * (size_t) lookaheadSamplesOs, 0.0f);
         lookaheadIndex = 0;
 
         dry.setSize (numChannels, maxBlock);
@@ -192,9 +206,11 @@ public:
         lowCut.reset(); lowShelf.reset(); lowMid.reset(); mid.reset(); presence.reset(); highMid.reset(); air.reset();
         resonanceFilter.reset(); glueComp.reset();
         exciterSplit1.reset(); exciterSplit2.reset(); exciterSplit3.reset();
+        limiterSplit1.reset(); limiterSplit2.reset(); limiterSplit3.reset();
         if (clipOversampling) clipOversampling->reset();
         if (limitOversampling) limitOversampling->reset();
         std::fill (lookaheadRing.begin(), lookaheadRing.end(), 0.0f);
+        std::fill (limiterBandRing.begin(), limiterBandRing.end(), 0.0f);
         lookaheadIndex = 0;
 
         lowDynState.fill (0.0f);
@@ -215,6 +231,7 @@ public:
         lastInputGain = 1.0f;
         lastOutputGain = 1.0f;
         limiterGain = 1.0f;
+        limiterBandGain.fill (1.0f);
         lastClipDriveGain = juce::Decibels::decibelsToGain (settings.clipDriveDb);
         lastClipCeilingGain = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
         lastLimiterDriveGain = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
@@ -909,7 +926,14 @@ private:
         const float requestedCeiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
         const float ceilingTarget = requestedCeiling * juce::Decibels::decibelsToGain (-0.20f);
         const double osRate = sampleRate * 8.0;
-        const float release = timeCoeff (settings.limiterReleaseMs, osRate);
+        const std::array<float, 4> release {
+            timeCoeff (settings.limiterReleaseMs * 1.55f, osRate),
+            timeCoeff (settings.limiterReleaseMs * 1.20f, osRate),
+            timeCoeff (settings.limiterReleaseMs * 0.88f, osRate),
+            timeCoeff (settings.limiterReleaseMs * 0.68f, osRate)
+        };
+
+        const float bypassRelease = timeCoeff (juce::jmax (35.0f, settings.limiterReleaseMs), osRate);
         const float denom = (float) juce::jmax ((size_t) 1, up.getNumSamples() - 1);
         float maxReduction = 0.0f;
 
@@ -918,44 +942,101 @@ private:
             const float t = (float) i / denom;
             const float limDrive = juce::jmap (t, lastLimiterDriveGain, limDriveTarget);
             const float ceiling = juce::jmap (t, lastLimiterCeilingGain, ceilingTarget);
-            float peak = 0.0f;
+
+            if (! enabled)
+            {
+                for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
+                {
+                    auto* d = up.getChannelPointer (ch);
+                    const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
+                    const float delayed = lookaheadRing[ringOffset];
+                    lookaheadRing[ringOffset] = std::isfinite (d[i]) ? d[i] : 0.0f;
+                    d[i] = delayed;
+                }
+
+                for (auto& g : limiterBandGain)
+                    g += (1.0f - g) * (1.0f - bypassRelease);
+
+                if (++lookaheadIndex >= lookaheadSamplesOs)
+                    lookaheadIndex = 0;
+
+                continue;
+            }
+
+            std::array<std::array<float, 4>, 2> bandSample {};
+            std::array<float, 4> bandPeak {};
+            float fullPeak = 0.0f;
 
             for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
             {
                 auto* d = up.getChannelPointer (ch);
-                float x = std::isfinite (d[i]) ? d[i] : 0.0f;
-                if (enabled)
-                    x *= limDrive;
-                d[i] = x;
-                peak = juce::jmax (peak, std::abs (x));
+                const float x = (std::isfinite (d[i]) ? d[i] : 0.0f) * limDrive;
+
+                float low = 0.0f, rest1 = 0.0f;
+                float lowMid = 0.0f, rest2 = 0.0f;
+                float highMid = 0.0f, high = 0.0f;
+
+                limiterSplit1.processSample ((int) ch, x, low, rest1);
+                limiterSplit2.processSample ((int) ch, rest1, lowMid, rest2);
+                limiterSplit3.processSample ((int) ch, rest2, highMid, high);
+
+                bandSample[ch][0] = low;
+                bandSample[ch][1] = lowMid;
+                bandSample[ch][2] = highMid;
+                bandSample[ch][3] = high;
+
+                bandPeak[0] = juce::jmax (bandPeak[0], std::abs (low));
+                bandPeak[1] = juce::jmax (bandPeak[1], std::abs (lowMid));
+                bandPeak[2] = juce::jmax (bandPeak[2], std::abs (highMid));
+                bandPeak[3] = juce::jmax (bandPeak[3], std::abs (high));
+                fullPeak = juce::jmax (fullPeak, std::abs (x));
             }
 
-            float target = 1.0f;
-            if (enabled && peak > ceiling)
-                target = ceiling / juce::jmax (peak, 1.0e-9f);
+            const float overallTarget = fullPeak > ceiling
+                                      ? ceiling / juce::jmax (fullPeak, 1.0e-9f)
+                                      : 1.0f;
+            const float sumPeaks = juce::jmax (1.0e-9f, bandPeak[0] + bandPeak[1] + bandPeak[2] + bandPeak[3]);
 
-            if (target < limiterGain)
-                limiterGain = target;
-            else
-                limiterGain = target + release * (limiterGain - target);
-
-            if (! enabled)
-                limiterGain += (1.0f - limiterGain) * (1.0f - release);
-
-            if (enabled)
+            for (int band = 0; band < 4; ++band)
             {
-                const float reductionDb = -juce::Decibels::gainToDecibels (juce::jmax (limiterGain, 1.0e-6f));
+                float target = 1.0f;
+
+                if (overallTarget < 0.999999f)
+                {
+                    const float contribution = bandPeak[(size_t) band] / sumPeaks;
+                    const float pressure = juce::jlimit (0.58f, 1.85f, 0.58f + contribution * 3.0f);
+                    target = juce::jlimit (overallTarget * 0.72f,
+                                           1.0f,
+                                           1.0f - (1.0f - overallTarget) * pressure);
+                }
+
+                if (target < limiterBandGain[(size_t) band])
+                    limiterBandGain[(size_t) band] = target;
+                else
+                    limiterBandGain[(size_t) band] =
+                        target + release[(size_t) band] * (limiterBandGain[(size_t) band] - target);
+
+                const float reductionDb =
+                    -juce::Decibels::gainToDecibels (juce::jmax (limiterBandGain[(size_t) band], 1.0e-6f));
                 maxReduction = juce::jmax (maxReduction, reductionDb);
             }
 
             for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
             {
-                auto* d = up.getChannelPointer (ch);
-                const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
-                const float delayed = lookaheadRing[ringOffset];
-                lookaheadRing[ringOffset] = d[i];
-                d[i] = enabled ? juce::jlimit (-ceiling, ceiling, delayed * limiterGain)
-                               : delayed;
+                float sum = 0.0f;
+
+                for (int band = 0; band < 4; ++band)
+                {
+                    const size_t ringOffset =
+                          ((size_t) band * (size_t) numChannels + ch) * (size_t) lookaheadSamplesOs
+                        + (size_t) lookaheadIndex;
+
+                    const float delayed = limiterBandRing[ringOffset];
+                    limiterBandRing[ringOffset] = bandSample[ch][(size_t) band];
+                    sum += delayed * limiterBandGain[(size_t) band];
+                }
+
+                up.getChannelPointer (ch)[i] = juce::jlimit (-ceiling, ceiling, sum);
             }
 
             if (++lookaheadIndex >= lookaheadSamplesOs)
@@ -969,6 +1050,7 @@ private:
 
         if (enabled)
         {
+            // Final true-peak safety guard after reconstruction.
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
                 auto* d = buffer.getWritePointer (ch);
@@ -1090,6 +1172,7 @@ private:
     float lastInputGain = 1.0f;
     float lastOutputGain = 1.0f;
     float limiterGain = 1.0f;
+    std::array<float, 4> limiterBandGain { 1.0f, 1.0f, 1.0f, 1.0f };
     float lastClipDriveGain = 1.0f;
     float lastClipCeilingGain = 1.0f;
     float lastLimiterDriveGain = 1.0f;
@@ -1097,6 +1180,7 @@ private:
     int lookaheadSamplesOs = 8;
     int lookaheadIndex = 0;
     std::vector<float> lookaheadRing;
+    std::vector<float> limiterBandRing;
     MasterSettings settings;
     std::array<int, forgeModuleCount> chainOrder { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
     int chainCount = forgeModuleCount;
@@ -1106,6 +1190,9 @@ private:
     juce::dsp::LinkwitzRileyFilter<float> exciterSplit1;
     juce::dsp::LinkwitzRileyFilter<float> exciterSplit2;
     juce::dsp::LinkwitzRileyFilter<float> exciterSplit3;
+    juce::dsp::LinkwitzRileyFilter<float> limiterSplit1;
+    juce::dsp::LinkwitzRileyFilter<float> limiterSplit2;
+    juce::dsp::LinkwitzRileyFilter<float> limiterSplit3;
     std::unique_ptr<juce::dsp::Oversampling<float>> clipOversampling;
     std::unique_ptr<juce::dsp::Oversampling<float>> limitOversampling;
     juce::AudioBuffer<float> dry;
