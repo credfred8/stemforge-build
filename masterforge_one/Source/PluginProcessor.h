@@ -37,7 +37,7 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     MasterEngine engine;
 
-    const std::array<juce::String, 9> presetNames {
+    const std::array<juce::String, 10> presetNames {
         "Boom Bap - DENSE PUNCH",
         "Boom Bap - DUSTY ANALOG",
         "Hip-Hop - MODERN DENSE",
@@ -46,7 +46,8 @@ public:
         "Vinyl - WARM GLUE",
         "Drums - HARD PUNCH",
         "Mixbus - OPEN DYNAMIC",
-        "Safe Master - CLEAN"
+        "Safe Master - CLEAN",
+        "INIT - EMPTY / ALL OFF"
     };
 
 private:

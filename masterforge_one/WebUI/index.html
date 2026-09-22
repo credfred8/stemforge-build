@@ -2,29 +2,29 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MasterForge ONE</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MASTERFORGE ONE</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
   <div id="app">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark"><span></span><span></span><span></span></div>
-        <div>
-          <div class="brand-title">MASTERFORGE <b>ONE</b></div>
-          <div class="brand-sub">MASTERING SYSTEM · WEBVIEW2 · 8X TRUE-PEAK STAGE</div>
-        </div>
-      </div>
+      <div class="brand-title">MASTERFORGE ONE</div>
 
       <div class="top-actions">
-        <div class="preset-wrap">
-          <span class="micro-label">PRESET</span>
-          <select id="presetSelect"></select>
+        <div id="presetControl" class="preset-control">
+          <button id="presetButton" class="preset-button" aria-haspopup="listbox" aria-expanded="false">
+            <span id="presetButtonText">Boom Bap - DENSE PUNCH</span>
+            <span class="chevron"></span>
+          </button>
+          <div id="presetMenu" class="preset-menu" role="listbox"></div>
         </div>
-        <button id="bypassBtn" class="bypass" data-tip="Глобальный bypass. Отключает всю обработку, сохраняя задержку плагина для корректного сравнения.">
-          <span class="switch-dot"></span>
-          <span>BYPASS</span>
+
+        <button id="bypassBtn" class="bypass" data-tip="Глобальный BYPASS. Полностью отключает мастеринг-обработку для честного сравнения с исходником.">
+          <span class="switch-dot"></span><span>BYPASS</span>
         </button>
       </div>
     </header>
@@ -33,7 +33,7 @@
 
     <main class="workspace">
       <section class="main-column">
-        <div class="analyzer-card">
+        <div class="analyzer-card premium-card">
           <div class="card-head">
             <div>
               <div class="eyebrow">REAL-TIME ANALYZER</div>
@@ -49,27 +49,28 @@
           <div id="eqStage" class="eq-stage">
             <canvas id="eqCanvas"></canvas>
             <div id="eqInspector" class="eq-inspector"></div>
-            <div class="eq-hint">EQ: тяните точки мышью · колесо меняет Q · двойной клик сбрасывает полосу</div>
+            <div class="eq-hint">Точка EQ: тяните мышью · колесо = Q · двойной клик = сброс полосы</div>
           </div>
         </div>
 
-        <section class="module-card">
+        <section class="module-card premium-card">
           <div class="module-head">
             <div class="module-title-wrap">
-              <button id="modulePower" class="module-power" aria-label="Включить модуль" data-tip="Включить или выключить выбранный модуль."></button>
+              <button id="modulePower" class="module-power" aria-label="Включить модуль"></button>
               <div>
-                <div id="moduleKicker" class="eyebrow">MODULE</div>
+                <div id="moduleKicker" class="eyebrow">GAIN STAGING</div>
                 <div id="moduleTitle" class="module-title">INPUT / LEVEL</div>
               </div>
             </div>
-            <button id="helpBtn" class="help-btn" data-tip="Открыть подробную инструкцию по выбранному модулю.">?</button>
+            <button id="helpBtn" class="help-btn" data-tip="Подробная инструкция по выбранному модулю.">?</button>
           </div>
+
           <div id="moduleControls" class="controls-grid"></div>
           <div id="moduleFooter" class="module-footer"></div>
         </section>
       </section>
 
-      <aside class="meter-card">
+      <aside class="meter-card premium-card">
         <div class="meter-head">
           <div>
             <div class="eyebrow">MASTER OUT</div>
@@ -89,9 +90,7 @@
             <div class="meter-shell"><div id="outMeter" class="meter-fill"></div><div class="meter-gloss"></div></div>
             <div id="outPeak" class="meter-value">-∞</div>
           </div>
-          <div class="meter-scale">
-            <span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-48</span>
-          </div>
+          <div class="meter-scale"><span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-48</span></div>
         </div>
 
         <div class="stat-grid">
@@ -110,7 +109,12 @@
     </main>
   </div>
 
-  <div id="tooltip" class="tooltip"></div>
+  <div id="tooltip" class="tooltip">
+    <div id="tooltipTitle" class="tooltip-title"></div>
+    <div id="tooltipBody" class="tooltip-body"></div>
+    <div id="tooltipRange" class="tooltip-range"></div>
+    <div id="tooltipContext" class="tooltip-context"></div>
+  </div>
 
   <div id="modal" class="modal" aria-hidden="true">
     <div class="modal-backdrop"></div>
@@ -119,7 +123,7 @@
       <div class="eyebrow">ИНСТРУКЦИЯ</div>
       <h2 id="modalTitle"></h2>
       <p id="modalText"></p>
-      <div class="modal-tip">Совет: на мастеринге маленькие движения почти всегда звучат дороже больших.</div>
+      <div class="modal-tip">Рабочий принцип: сначала исправляйте проблему, потом добавляйте характер. Сравнивайте по одинаковой громкости.</div>
     </div>
   </div>
 

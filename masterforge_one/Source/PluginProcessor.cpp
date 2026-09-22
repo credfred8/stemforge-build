@@ -413,13 +413,103 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             set ("limiterDrive", 0.8f); set ("ceiling", -1.0f); set ("limiterRelease", 220.0f);
             break;
 
-        default: // Safe master
+        case 8: // Safe master
             set ("targetInput", -18.0f);
-            set ("lowShelf", 0.0f); set ("lowMid", -0.2f); set ("presence", 0.1f); set ("air", 0.1f);
+            set ("lowShelf", 0.0f); set ("lowMid", -0.2f); set ("midGain", 0.0f);
+            set ("presence", 0.1f); set ("highMidGain", 0.0f); set ("air", 0.1f);
             set ("dynamicEq", 0.16f); set ("resonance", 0.10f);
             set ("glue", 0.20f); set ("multiband", 0.16f); set ("impact", 0.10f);
             set ("analog", 0.03f); set ("exciter", 0.03f); set ("clipDrive", 0.4f);
             set ("limiterDrive", 1.5f); set ("ceiling", -1.0f); set ("limiterRelease", 180.0f);
+            break;
+
+        default: // INIT - EMPTY / ALL OFF
+            setBool ("smartGain", false);
+            set ("inputTrim", 0.0f);
+            set ("targetInput", -18.0f);
+            set ("smartSpeed", 0.0f);
+            set ("smartMaxGain", 3.0f);
+
+            setBool ("cleanEqOn", false);
+            set ("lowShelf", 0.0f); set ("lowShelfHz", 105.0f);
+            set ("lowMid", 0.0f); set ("lowMidHz", 320.0f); set ("lowMidQ", 0.85f);
+            set ("midGain", 0.0f); set ("midHz", 900.0f); set ("midQ", 0.90f);
+            set ("presence", 0.0f); set ("presenceHz", 3200.0f); set ("presenceQ", 0.90f);
+            set ("highMidGain", 0.0f); set ("highMidHz", 6200.0f); set ("highMidQ", 0.90f);
+            set ("air", 0.0f); set ("airHz", 10500.0f);
+
+            setBool ("dynamicEqOn", false);
+            set ("dynamicEq", 0.0f);
+            set ("dynThreshold", -20.0f);
+            set ("dynAttack", 18.0f);
+            set ("dynRelease", 160.0f);
+            set ("dynLowHz", 260.0f);
+            set ("dynHighHz", 5200.0f);
+
+            setBool ("resonanceOn", false);
+            set ("resonance", 0.0f);
+            set ("resonanceHz", 2850.0f);
+            set ("resonanceQ", 2.6f);
+
+            setBool ("glueOn", false);
+            set ("glue", 0.0f);
+            set ("glueThreshold", -16.0f);
+            set ("glueRatio", 1.1f);
+            set ("glueAttack", 24.0f);
+            set ("glueRelease", 180.0f);
+            set ("glueMakeup", 0.0f);
+            set ("glueMix", 0.0f);
+
+            setBool ("multibandOn", false);
+            set ("multiband", 0.0f);
+            set ("mbLowHz", 150.0f);
+            set ("mbHighHz", 4500.0f);
+            set ("mbLowAmount", 0.0f);
+            set ("mbMidAmount", 0.0f);
+            set ("mbHighAmount", 0.0f);
+
+            setBool ("impactOn", false);
+            set ("impact", 0.0f);
+            set ("impactSpeed", 0.0f);
+            set ("impactMix", 0.0f);
+
+            setBool ("analogOn", false);
+            set ("analog", 0.0f);
+            set ("analogTone", 0.0f);
+            set ("analogMix", 0.0f);
+
+            setBool ("exciterOn", false);
+            set ("exciter", 0.0f);
+            set ("exciterHz", 6500.0f);
+            set ("exciterMix", 0.0f);
+
+            setBool ("bassMonoOn", false);
+            set ("bassMonoHz", 115.0f);
+            set ("bassMonoAmount", 0.0f);
+
+            setBool ("imagerOn", false);
+            set ("widthLow", 1.0f);
+            set ("widthMid", 1.0f);
+            set ("widthHigh", 1.0f);
+            set ("imagerLowHz", 180.0f);
+            set ("imagerHighHz", 5000.0f);
+            set ("imagerSafety", 0.0f);
+
+            set ("dryWet", 1.0f);
+
+            setBool ("clipperOn", false);
+            set ("clipDrive", 0.0f);
+            set ("clipMix", 0.0f);
+            set ("clipCeiling", -0.35f);
+            set ("clipShape", 0.0f);
+
+            setBool ("limiterOn", false);
+            set ("limiterDrive", 0.0f);
+            set ("ceiling", -1.0f);
+            set ("limiterRelease", 120.0f);
+
+            set ("outputTrim", 0.0f);
+            setBool ("ditherOn", false);
             break;
     }
 }
