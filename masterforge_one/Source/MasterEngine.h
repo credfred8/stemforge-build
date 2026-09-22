@@ -122,7 +122,7 @@ public:
         glueComp.prepare (spec);
 
         oversampling = std::make_unique<juce::dsp::Oversampling<float>> (
-            (size_t) numChannels, 2,
+            (size_t) numChannels, 3,
             juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
             true, true);
         oversampling->initProcessing ((size_t) maxBlock);
@@ -158,6 +158,10 @@ public:
         lastInputGain = 1.0f;
         lastOutputGain = 1.0f;
         limiterGain = 1.0f;
+        lastClipDriveGain = juce::Decibels::decibelsToGain (settings.clipDriveDb);
+        lastClipCeilingGain = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
+        lastLimiterDriveGain = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
+        lastLimiterCeilingGain = juce::Decibels::decibelsToGain (settings.limiterCeilingDb - 0.25f);
         meterCounter = 0;
         limiterReductionDb.store (0.0f);
     }
@@ -335,7 +339,9 @@ private:
         {
             const float current = inputRmsDb.load();
             const float maxGain = juce::jlimit (1.0f, 18.0f, settings.smartMaxGainDb);
-            const float desired = juce::jlimit (-maxGain, maxGain, settings.targetInputRmsDb - current);
+            const float desired = current < -65.0f
+                                ? 0.0f
+                                : juce::jlimit (-maxGain, maxGain, settings.targetInputRmsDb - current);
             const float speed = juce::jlimit (0.0f, 1.0f, settings.smartSpeed);
             const float tauSeconds = juce::jmap (speed, 2.5f, 0.18f);
             const float alpha = 1.0f - std::exp (-(float) buffer.getNumSamples() / ((float) sampleRate * tauSeconds));
@@ -662,22 +668,29 @@ private:
         juce::dsp::AudioBlock<float> block (buffer);
         auto up = oversampling->processSamplesUp (block);
 
-        const float clipDrive = juce::Decibels::decibelsToGain (settings.clipDriveDb);
-        const float clipCeiling = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
+        const float clipDriveTarget = juce::Decibels::decibelsToGain (settings.clipDriveDb);
+        const float clipCeilingTarget = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
         const float clipMix = juce::jlimit (0.0f, 1.0f, settings.clipMix);
         const float shape = juce::jlimit (0.0f, 1.0f, settings.clipShape);
         const float k = juce::jmap (shape, 0.70f, 2.80f);
         const float tanhNorm = juce::jmax (0.001f, std::tanh (k));
 
-        const float limDrive = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
-        const float ceiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
-        const double osRate = sampleRate * 4.0;
+        const float limDriveTarget = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
+        const float requestedCeiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
+        const float ceilingTarget = requestedCeiling * juce::Decibels::decibelsToGain (-0.25f);
+        const double osRate = sampleRate * 8.0;
         const float release = timeCoeff (settings.limiterReleaseMs, osRate);
 
         float maxReduction = 0.0f;
+        const float denom = (float) juce::jmax ((size_t) 1, up.getNumSamples() - 1);
 
         for (size_t i = 0; i < up.getNumSamples(); ++i)
         {
+            const float t = (float) i / denom;
+            const float clipDrive = juce::jmap (t, lastClipDriveGain, clipDriveTarget);
+            const float clipCeiling = juce::jmap (t, lastClipCeilingGain, clipCeilingTarget);
+            const float limDrive = juce::jmap (t, lastLimiterDriveGain, limDriveTarget);
+            const float ceiling = juce::jmap (t, lastLimiterCeilingGain, ceilingTarget);
             float peak = 0.0f;
 
             for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
@@ -721,8 +734,22 @@ private:
             }
         }
 
+        lastClipDriveGain = clipDriveTarget;
+        lastClipCeilingGain = clipCeilingTarget;
+        lastLimiterDriveGain = limDriveTarget;
+        lastLimiterCeilingGain = ceilingTarget;
+
         limiterReductionDb.store (maxReduction);
         oversampling->processSamplesDown (block);
+
+        // Reconstruction after oversampling can create tiny inter-sample overs.
+        // Keep an inaudible final safety guard at the user-selected ceiling.
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* d = buffer.getWritePointer (ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                d[i] = juce::jlimit (-requestedCeiling, requestedCeiling, d[i]);
+        }
     }
 
     void applyDither (juce::AudioBuffer<float>& buffer)
@@ -837,6 +864,10 @@ private:
     float lastInputGain = 1.0f;
     float lastOutputGain = 1.0f;
     float limiterGain = 1.0f;
+    float lastClipDriveGain = 1.0f;
+    float lastClipCeilingGain = 1.0f;
+    float lastLimiterDriveGain = 1.0f;
+    float lastLimiterCeilingGain = 1.0f;
     MasterSettings settings;
 
     Filter lowCut, lowShelf, lowMid, presence, air, resonanceFilter;

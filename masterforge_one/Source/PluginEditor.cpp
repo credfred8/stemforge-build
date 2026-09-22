@@ -17,6 +17,11 @@ juce::Colour text()     { return juce::Colour (0xffedf5ff); }
 juce::Colour muted()    { return juce::Colour (0xff8fa0b3); }
 juce::Colour dim()      { return juce::Colour (0xff526172); }
 
+juce::String U (const char8_t* s)
+{
+    return juce::String::fromUTF8 (reinterpret_cast<const char*> (s));
+}
+
 float normDb (float db)
 {
     return juce::jlimit (0.0f, 1.0f, juce::jmap (db, -60.0f, 0.0f, 0.0f, 1.0f));
@@ -276,7 +281,7 @@ void MasterForgeAudioProcessorEditor::MeterPanel::paint (juce::Graphics& g)
 
     g.setColour (text());
     g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-    g.drawText ("I / O  •  LOUDNESS", top.toNearestInt(), juce::Justification::centredLeft);
+    g.drawText ("I / O | LOUDNESS", top.toNearestInt(), juce::Justification::centredLeft);
 
     auto meterZone = area.removeFromTop (205.0f);
     auto numbers = meterZone.removeFromBottom (32.0f);
@@ -357,17 +362,17 @@ void MasterForgeAudioProcessorEditor::MeterPanel::paint (juce::Graphics& g)
 
     if (rms < -25.0f)
     {
-        message = "Вход тихий: добавьте уровень или включите Smart Gain.";
+        message = U(u8"Вход тихий: добавьте уровень или включите Smart Gain.");
         coachColour = amber();
     }
     else if (rms > -11.0f)
     {
-        message = "Вход горячий: снизьте уровень, чтобы сохранить транзиенты.";
+        message = U(u8"Вход горячий: снизьте уровень, чтобы сохранить транзиенты.");
         coachColour = red();
     }
     else
     {
-        message = "Вход в рабочей зоне. Можно мастерить без лишнего перегруза.";
+        message = U(u8"Вход в рабочей зоне. Можно мастерить без лишнего перегруза.");
     }
 
     g.setColour (coachColour.withAlpha (0.10f));
@@ -390,11 +395,11 @@ MasterForgeAudioProcessorEditor::ModulePage::ModulePage (
       helpText (std::move (helpString))
 {
     enabled.setButtonText ("");
-    enabled.setTooltip ("Включить или обойти этот модуль. При выключении блок не обрабатывает сигнал.");
+    enabled.setTooltip (U(u8"Включить или обойти этот модуль. При выключении блок не обрабатывает сигнал."));
     addAndMakeVisible (enabled);
     enabledAttachment = std::make_unique<ButtonAttachment> (processor.apvts, toggleId, enabled);
 
-    help.setTooltip ("Нажмите, чтобы открыть русскую инструкцию по этому модулю.");
+    help.setTooltip (U(u8"Нажмите, чтобы открыть русскую инструкцию по этому модулю."));
     help.setColour (juce::TextButton::buttonColourId, panel3());
     help.setColour (juce::TextButton::textColourOffId, text());
     help.onClick = [this]
@@ -403,7 +408,7 @@ MasterForgeAudioProcessorEditor::ModulePage::ModulePage (
             juce::MessageBoxIconType::InfoIcon,
             titleText,
             helpText,
-            "Закрыть");
+            U(u8"Закрыть"));
     };
     addAndMakeVisible (help);
 
@@ -470,7 +475,7 @@ void MasterForgeAudioProcessorEditor::ModulePage::paint (juce::Graphics& g)
     g.drawRoundedRectangle (info, 7.0f, 1.0f);
     g.setColour (muted());
     g.setFont (juce::Font (juce::FontOptions (10.0f)));
-    g.drawFittedText ("ПОДСКАЗКА: " + helpText,
+    g.drawFittedText (U(u8"ПОДСКАЗКА: ") + helpText,
                       info.reduced (10.0f, 5.0f).toNearestInt(),
                       juce::Justification::centredLeft, 2);
 }
@@ -517,7 +522,7 @@ MasterForgeAudioProcessorEditor::ModuleTab::ModuleTab (
       onSelect (std::move (selectCallback))
 {
     enabled.setButtonText ("");
-    enabled.setTooltip ("Включить/выключить модуль без открытия его страницы.");
+    enabled.setTooltip (U(u8"Включить/выключить модуль без открытия его страницы."));
     addAndMakeVisible (enabled);
     enabledAttachment = std::make_unique<ButtonAttachment> (processor.apvts, toggleId, enabled);
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -580,7 +585,7 @@ MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAud
         presetBox.addItem (processor.presetNames[(size_t) i], i + 1);
 
     presetBox.setSelectedItemIndex (processor.getPresetIndex(), juce::dontSendNotification);
-    presetBox.setTooltip ("Готовые стартовые цепочки мастеринга. После выбора подстройте Input, Maximizer и остальные блоки под конкретный микс.");
+    presetBox.setTooltip (U(u8"Готовые стартовые цепочки мастеринга. После выбора подстройте Input, Maximizer и остальные блоки под конкретный микс."));
     presetBox.onChange = [this]
     {
         const int idx = presetBox.getSelectedItemIndex();
@@ -590,7 +595,7 @@ MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAud
     addAndMakeVisible (presetBox);
 
     masterBypassAttachment = std::make_unique<ButtonAttachment> (processor.apvts, "masterBypass", masterBypass);
-    masterBypass.setTooltip ("Глобальный BYPASS. Сигнал проходит без обработки всей мастеринг-цепью.");
+    masterBypass.setTooltip (U(u8"Глобальный BYPASS. Сигнал проходит без обработки всей мастеринг-цепью."));
     addAndMakeVisible (masterBypass);
 
     addAndMakeVisible (analyzer);
@@ -606,135 +611,135 @@ MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAud
     addAndMakeVisible (moduleDetail);
 
     addModule ("INPUT / LEVEL", "smartGain",
-               "Сначала выставьте здоровый входной уровень. TARGET RMS задаёт цель для плавного Smart Gain, SPEED — скорость его реакции, RANGE — максимальную автоматическую коррекцию. Для плотного мастера не загоняйте вход в клиппинг.",
+               U(u8"Сначала выставьте здоровый входной уровень. TARGET RMS задаёт цель для плавного Smart Gain, SPEED — скорость его реакции, RANGE — максимальную автоматическую коррекцию. Для плотного мастера не загоняйте вход в клиппинг."),
                {
-                   {"inputTrim","INPUT TRIM"," dB","Ручной входной гейн до всей цепи. Используйте для точной подстройки уровня."},
-                   {"targetInput","TARGET RMS"," dB","Целевой средний уровень для Smart Gain. -18 dBFS — безопасная универсальная точка."},
-                   {"smartSpeed","SPEED","%","Скорость автоматической коррекции. Меньше — плавнее и музыкальнее; больше — быстрее."},
-                   {"smartMaxGain","RANGE"," dB","Максимальная величина, на которую Smart Gain может поднять или опустить вход."}
+                   {"inputTrim","INPUT TRIM"," dB",U(u8"Ручной входной гейн до всей цепи. Используйте для точной подстройки уровня.")},
+                   {"targetInput","TARGET RMS"," dB",U(u8"Целевой средний уровень для Smart Gain. -18 dBFS — безопасная универсальная точка.")},
+                   {"smartSpeed","SPEED","%",U(u8"Скорость автоматической коррекции. Меньше — плавнее и музыкальнее; больше — быстрее.")},
+                   {"smartMaxGain","RANGE"," dB",U(u8"Максимальная величина, на которую Smart Gain может поднять или опустить вход.")}
                });
 
     addModule ("EQUALIZER 1", "cleanEqOn",
-               "Широкий чистый EQ до динамической обработки. Делайте небольшие движения: обычно ±0.5–2 dB достаточно. Частоты и Q доступны отдельно, поэтому блок уже не ограничен четырьмя фиксированными полосами.",
+               U(u8"Широкий чистый EQ до динамической обработки. Делайте небольшие движения: обычно ±0.5–2 dB достаточно. Частоты и Q доступны отдельно, поэтому блок уже не ограничен четырьмя фиксированными полосами."),
                {
-                   {"lowShelfHz","LOW FREQ"," Hz","Частота низкой полки. Выберите область, где нужно добавить или убрать общий вес."},
-                   {"lowShelf","LOW GAIN"," dB","Усиление/ослабление низкой полки."},
-                   {"lowMidHz","LOW-MID FREQ"," Hz","Центр нижней середины — зона мути, коробки или тела."},
-                   {"lowMid","LOW-MID GAIN"," dB","Усиление/ослабление нижней середины."},
-                   {"lowMidQ","LOW-MID Q","","Ширина полосы нижней середины. Меньше Q — шире и мягче."},
-                   {"presenceHz","PRES FREQ"," Hz","Центральная частота присутствия/атаки."},
-                   {"presence","PRES GAIN"," dB","Усиление/ослабление присутствия."},
-                   {"presenceQ","PRES Q","","Ширина полосы присутствия."},
-                   {"airHz","AIR FREQ"," Hz","Частота верхней полки воздуха."},
-                   {"air","AIR GAIN"," dB","Добавляет или убирает верхний воздух и блеск."}
+                   {"lowShelfHz","LOW FREQ"," Hz",U(u8"Частота низкой полки. Выберите область, где нужно добавить или убрать общий вес.")},
+                   {"lowShelf","LOW GAIN"," dB",U(u8"Усиление/ослабление низкой полки.")},
+                   {"lowMidHz","LOW-MID FREQ"," Hz",U(u8"Центр нижней середины — зона мути, коробки или тела.")},
+                   {"lowMid","LOW-MID GAIN"," dB",U(u8"Усиление/ослабление нижней середины.")},
+                   {"lowMidQ","LOW-MID Q","",U(u8"Ширина полосы нижней середины. Меньше Q — шире и мягче.")},
+                   {"presenceHz","PRES FREQ"," Hz",U(u8"Центральная частота присутствия/атаки.")},
+                   {"presence","PRES GAIN"," dB",U(u8"Усиление/ослабление присутствия.")},
+                   {"presenceQ","PRES Q","",U(u8"Ширина полосы присутствия.")},
+                   {"airHz","AIR FREQ"," Hz",U(u8"Частота верхней полки воздуха.")},
+                   {"air","AIR GAIN"," dB",U(u8"Добавляет или убирает верхний воздух и блеск.")}
                });
 
     addModule ("DYNAMIC EQ", "dynamicEqOn",
-               "Динамически успокаивает избыток низа и верха только когда они выпирают. THRESHOLD определяет момент срабатывания, ATTACK/RELEASE — характер движения, LOW/HIGH XOVER — области контроля.",
+               U(u8"Динамически успокаивает избыток низа и верха только когда они выпирают. THRESHOLD определяет момент срабатывания, ATTACK/RELEASE — характер движения, LOW/HIGH XOVER — области контроля."),
                {
-                   {"dynamicEq","AMOUNT","%","Общая глубина динамического контроля."},
-                   {"dynThreshold","THRESHOLD"," dB","Порог, выше которого динамический EQ начинает сильнее подавлять проблемную энергию."},
-                   {"dynAttack","ATTACK"," ms","Как быстро модуль реагирует на всплески."},
-                   {"dynRelease","RELEASE"," ms","Как быстро контроль отпускает после всплеска."},
-                   {"dynLowHz","LOW XOVER"," Hz","Граница низкочастотной динамической зоны."},
-                   {"dynHighHz","HIGH XOVER"," Hz","Граница верхней динамической зоны."}
+                   {"dynamicEq","AMOUNT","%",U(u8"Общая глубина динамического контроля.")},
+                   {"dynThreshold","THRESHOLD"," dB",U(u8"Порог, выше которого динамический EQ начинает сильнее подавлять проблемную энергию.")},
+                   {"dynAttack","ATTACK"," ms",U(u8"Как быстро модуль реагирует на всплески.")},
+                   {"dynRelease","RELEASE"," ms",U(u8"Как быстро контроль отпускает после всплеска.")},
+                   {"dynLowHz","LOW XOVER"," Hz",U(u8"Граница низкочастотной динамической зоны.")},
+                   {"dynHighHz","HIGH XOVER"," Hz",U(u8"Граница верхней динамической зоны.")}
                });
 
     addModule ("STABILIZER", "resonanceOn",
-               "Узкий резонанс-контроль для неприятной середины/верхней середины. Найдите проблемную частоту, настройте Q и добавляйте AMOUNT до исчезновения резкости без потери живости.",
+               U(u8"Узкий резонанс-контроль для неприятной середины/верхней середины. Найдите проблемную частоту, настройте Q и добавляйте AMOUNT до исчезновения резкости без потери живости."),
                {
-                   {"resonance","AMOUNT","%","Глубина подавления выбранной резонансной зоны."},
-                   {"resonanceHz","FREQUENCY"," Hz","Центральная частота проблемного резонанса."},
-                   {"resonanceQ","Q","","Ширина подавления. Большой Q — узкая точечная коррекция."}
+                   {"resonance","AMOUNT","%",U(u8"Глубина подавления выбранной резонансной зоны.")},
+                   {"resonanceHz","FREQUENCY"," Hz",U(u8"Центральная частота проблемного резонанса.")},
+                   {"resonanceQ","Q","",U(u8"Ширина подавления. Большой Q — узкая точечная коррекция.")}
                });
 
     addModule ("VINTAGE COMP", "glueOn",
-               "Стерео bus-компрессор для склейки. Смотрите на транзиенты: слишком быстрый ATTACK съедает удар. MIX даёт параллельную компрессию, MAKEUP возвращает уровень без изменения порога.",
+               U(u8"Стерео bus-компрессор для склейки. Смотрите на транзиенты: слишком быстрый ATTACK съедает удар. MIX даёт параллельную компрессию, MAKEUP возвращает уровень без изменения порога."),
                {
-                   {"glue","AMOUNT","%","Общая интенсивность glue-обработки."},
-                   {"glueThreshold","THRESHOLD"," dB","Порог компрессии."},
-                   {"glueRatio","RATIO",":1","Степень компрессии после пересечения порога."},
-                   {"glueAttack","ATTACK"," ms","Время атаки. Для ударного boom bap обычно полезна более медленная атака."},
-                   {"glueRelease","RELEASE"," ms","Время восстановления после компрессии."},
-                   {"glueMakeup","MAKEUP"," dB","Компенсационный уровень после компрессора."},
-                   {"glueMix","MIX","%","Параллельное смешивание обработанного и исходного сигнала."}
+                   {"glue","AMOUNT","%",U(u8"Общая интенсивность glue-обработки.")},
+                   {"glueThreshold","THRESHOLD"," dB",U(u8"Порог компрессии.")},
+                   {"glueRatio","RATIO",":1",U(u8"Степень компрессии после пересечения порога.")},
+                   {"glueAttack","ATTACK"," ms",U(u8"Время атаки. Для ударного boom bap обычно полезна более медленная атака.")},
+                   {"glueRelease","RELEASE"," ms",U(u8"Время восстановления после компрессии.")},
+                   {"glueMakeup","MAKEUP"," dB",U(u8"Компенсационный уровень после компрессора.")},
+                   {"glueMix","MIX","%",U(u8"Параллельное смешивание обработанного и исходного сигнала.")}
                });
 
     addModule ("MULTIBAND", "multibandOn",
-               "Трёхполосная плотность: LOW/MID/HIGH обрабатываются отдельно. XOVER задают границы, а индивидуальные AMOUNT позволяют удержать бас, середину и верх без одинакового давления на весь микс.",
+               U(u8"Трёхполосная плотность: LOW/MID/HIGH обрабатываются отдельно. XOVER задают границы, а индивидуальные AMOUNT позволяют удержать бас, середину и верх без одинакового давления на весь микс."),
                {
-                   {"multiband","GLOBAL","%","Общая сила многополосной динамики."},
-                   {"mbLowHz","LOW XOVER"," Hz","Граница низкой полосы."},
-                   {"mbHighHz","HIGH XOVER"," Hz","Граница верхней полосы."},
-                   {"mbLowAmount","LOW","%","Плотность низкой полосы."},
-                   {"mbMidAmount","MID","%","Плотность средней полосы."},
-                   {"mbHighAmount","HIGH","%","Плотность верхней полосы."}
+                   {"multiband","GLOBAL","%",U(u8"Общая сила многополосной динамики.")},
+                   {"mbLowHz","LOW XOVER"," Hz",U(u8"Граница низкой полосы.")},
+                   {"mbHighHz","HIGH XOVER"," Hz",U(u8"Граница верхней полосы.")},
+                   {"mbLowAmount","LOW","%",U(u8"Плотность низкой полосы.")},
+                   {"mbMidAmount","MID","%",U(u8"Плотность средней полосы.")},
+                   {"mbHighAmount","HIGH","%",U(u8"Плотность верхней полосы.")}
                });
 
     addModule ("IMPACT", "impactOn",
-               "Возвращает атаку после компрессии и делает ударные выразительнее. SPEED определяет скорость огибающей, MIX — сколько обработанного транзиентного сигнала подмешивается.",
+               U(u8"Возвращает атаку после компрессии и делает ударные выразительнее. SPEED определяет скорость огибающей, MIX — сколько обработанного транзиентного сигнала подмешивается."),
                {
-                   {"impact","PUNCH","%","Сила транзиентного усиления."},
-                   {"impactSpeed","SPEED","%","Скорость детектора транзиентов."},
-                   {"impactMix","MIX","%","Баланс обработанного и исходного сигнала."}
+                   {"impact","PUNCH","%",U(u8"Сила транзиентного усиления.")},
+                   {"impactSpeed","SPEED","%",U(u8"Скорость детектора транзиентов.")},
+                   {"impactMix","MIX","%",U(u8"Баланс обработанного и исходного сигнала.")}
                });
 
     addModule ("SATURATION", "analogOn",
-               "Мягкая гармоническая сатурация для плотности. DRIVE отвечает за гармоники, TONE — за яркость окраса, MIX позволяет оставить атаку исходника. На мастере обычно лучше умеренные значения.",
+               U(u8"Мягкая гармоническая сатурация для плотности. DRIVE отвечает за гармоники, TONE — за яркость окраса, MIX позволяет оставить атаку исходника. На мастере обычно лучше умеренные значения."),
                {
-                   {"analog","DRIVE","%","Количество нелинейной гармонической окраски."},
-                   {"analogTone","TONE","%","Тон сатурации: левее темнее, правее ярче."},
-                   {"analogMix","MIX","%","Параллельное смешивание сатурации."}
+                   {"analog","DRIVE","%",U(u8"Количество нелинейной гармонической окраски.")},
+                   {"analogTone","TONE","%",U(u8"Тон сатурации: левее темнее, правее ярче.")},
+                   {"analogMix","MIX","%",U(u8"Параллельное смешивание сатурации.")}
                });
 
     addModule ("EXCITER", "exciterOn",
-               "Добавляет контролируемые верхние гармоники, а не просто поднимает EQ. FREQ задаёт область, AMOUNT — количество гармоник, MIX — итоговую долю эффекта.",
+               U(u8"Добавляет контролируемые верхние гармоники, а не просто поднимает EQ. FREQ задаёт область, AMOUNT — количество гармоник, MIX — итоговую долю эффекта."),
                {
-                   {"exciter","AMOUNT","%","Интенсивность создаваемых гармоник."},
-                   {"exciterHz","FREQUENCY"," Hz","Ниже этой области exciter практически не вмешивается."},
-                   {"exciterMix","MIX","%","Количество эффекта в итоговом сигнале."}
+                   {"exciter","AMOUNT","%",U(u8"Интенсивность создаваемых гармоник.")},
+                   {"exciterHz","FREQUENCY"," Hz",U(u8"Ниже этой области exciter практически не вмешивается.")},
+                   {"exciterMix","MIX","%",U(u8"Количество эффекта в итоговом сигнале.")}
                });
 
     addModule ("LOW END FOCUS", "bassMonoOn",
-               "Собирает суб и низ в центр для стабильного перевода на разные системы. FREQUENCY задаёт границу, AMOUNT — степень моно-совместимости. Верх и середина остаются стерео.",
+               U(u8"Собирает суб и низ в центр для стабильного перевода на разные системы. FREQUENCY задаёт границу, AMOUNT — степень моно-совместимости. Верх и середина остаются стерео."),
                {
-                   {"bassMonoHz","MONO BELOW"," Hz","Частоты ниже этой точки постепенно центрируются."},
-                   {"bassMonoAmount","AMOUNT","%","Степень центровки низких частот."}
+                   {"bassMonoHz","MONO BELOW"," Hz",U(u8"Частоты ниже этой точки постепенно центрируются.")},
+                   {"bassMonoAmount","AMOUNT","%",U(u8"Степень центровки низких частот.")}
                });
 
     addModule ("IMAGER", "imagerOn",
-               "Трёхполосная ширина с защитой по корреляции. Не расширяйте суб без необходимости. SAFETY автоматически уменьшает чрезмерное расширение при ухудшении фазовой корреляции.",
+               U(u8"Трёхполосная ширина с защитой по корреляции. Не расширяйте суб без необходимости. SAFETY автоматически уменьшает чрезмерное расширение при ухудшении фазовой корреляции."),
                {
-                   {"widthLow","LOW WIDTH","%","Ширина низкой полосы: 100% — исходная, меньше — уже."},
-                   {"widthMid","MID WIDTH","%","Ширина середины."},
-                   {"widthHigh","HIGH WIDTH","%","Ширина верхней полосы."},
-                   {"imagerLowHz","LOW XOVER"," Hz","Граница низкой полосы имейджера."},
-                   {"imagerHighHz","HIGH XOVER"," Hz","Граница верхней полосы имейджера."},
-                   {"imagerSafety","SAFETY","%","Насколько сильно защита по корреляции ограничивает рискованное расширение."}
+                   {"widthLow","LOW WIDTH","%",U(u8"Ширина низкой полосы: 100% — исходная, меньше — уже.")},
+                   {"widthMid","MID WIDTH","%",U(u8"Ширина середины.")},
+                   {"widthHigh","HIGH WIDTH","%",U(u8"Ширина верхней полосы.")},
+                   {"imagerLowHz","LOW XOVER"," Hz",U(u8"Граница низкой полосы имейджера.")},
+                   {"imagerHighHz","HIGH XOVER"," Hz",U(u8"Граница верхней полосы имейджера.")},
+                   {"imagerSafety","SAFETY","%",U(u8"Насколько сильно защита по корреляции ограничивает рискованное расширение.")}
                });
 
     addModule ("CLIPPER 4x", "clipperOn",
-               "Четырёхкратный oversampling уменьшает алиасинг. DRIVE аккуратно срезает короткие пики перед лимитером, CEILING задаёт рабочую границу, SHAPE меняет мягкость колена, MIX позволяет ослабить эффект.",
+               U(u8"Четырёхкратный oversampling уменьшает алиасинг. DRIVE аккуратно срезает короткие пики перед лимитером, CEILING задаёт рабочую границу, SHAPE меняет мягкость колена, MIX позволяет ослабить эффект."),
                {
-                   {"clipDrive","DRIVE"," dB","Предусиление перед клиппером."},
-                   {"clipCeiling","CEILING"," dB","Уровень мягкого ограничения клиппера."},
-                   {"clipShape","SHAPE","%","Мягкость/жёсткость формы клиппинга."},
-                   {"clipMix","MIX","%","Доля клиппированного сигнала."}
+                   {"clipDrive","DRIVE"," dB",U(u8"Предусиление перед клиппером.")},
+                   {"clipCeiling","CEILING"," dB",U(u8"Уровень мягкого ограничения клиппера.")},
+                   {"clipShape","SHAPE","%",U(u8"Мягкость/жёсткость формы клиппинга.")},
+                   {"clipMix","MIX","%",U(u8"Доля клиппированного сигнала.")}
                });
 
     addModule ("MAXIMIZER 4x", "limiterOn",
-               "Финальный stereo-linked лимитер после 4x oversampling. DRIVE определяет громкость, CEILING — выходной потолок, RELEASE — скорость возврата усиления. Следите за LIMITER GR справа: большие значения могут съесть панч.",
+               U(u8"Финальный stereo-linked лимитер после 4x oversampling. DRIVE определяет громкость, CEILING — выходной потолок, RELEASE — скорость возврата усиления. Следите за LIMITER GR справа: большие значения могут съесть панч."),
                {
-                   {"limiterDrive","DRIVE"," dB","Входной драйв финального лимитера — главный регулятор итоговой громкости."},
-                   {"ceiling","CEILING"," dB","Жёсткий выходной потолок после лимитера."},
-                   {"limiterRelease","RELEASE"," ms","Скорость восстановления лимитера после пиков."}
+                   {"limiterDrive","DRIVE"," dB",U(u8"Входной драйв финального лимитера — главный регулятор итоговой громкости.")},
+                   {"ceiling","CEILING"," dB",U(u8"Жёсткий выходной потолок после лимитера.")},
+                   {"limiterRelease","RELEASE"," ms",U(u8"Скорость восстановления лимитера после пиков.")}
                });
 
     addModule ("OUTPUT", "ditherOn",
-               "Финальный уровень и общий Dry/Wet. OUTPUT TRIM используется для точного level-match. DITHER добавляется в самом конце и полезен при финальном 24-bit экспорте.",
+               U(u8"Финальный уровень и общий Dry/Wet. OUTPUT TRIM используется для точного level-match. DITHER добавляется в самом конце и полезен при финальном 24-bit экспорте."),
                {
-                   {"outputTrim","OUTPUT TRIM"," dB","Финальная подстройка уровня после лимитера."},
-                   {"dryWet","MASTER MIX","%","Глобальный баланс между исходным сигналом и обработанной цепью до финального clip/limit."}
+                   {"outputTrim","OUTPUT TRIM"," dB",U(u8"Финальная подстройка уровня после лимитера.")},
+                   {"dryWet","MASTER MIX","%",U(u8"Глобальный баланс между исходным сигналом и обработанной цепью до финального clip/limit.")}
                });
 
     selectModule (0);
@@ -808,7 +813,7 @@ void MasterForgeAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setColour (accent());
     g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)));
-    g.drawText ("PRO MASTERING SUITE  •  4x FINAL STAGE  •  SMOOTH DSP",
+    g.drawText ("PRO MASTERING SUITE | 8x FINAL STAGE | SMOOTH DSP",
                 23, 39, 430, 16, juce::Justification::centredLeft);
 
     auto rack = juce::Rectangle<float> (0.0f, 66.0f, (float) getWidth(), 86.0f);

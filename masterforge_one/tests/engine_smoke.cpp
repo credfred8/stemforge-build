@@ -71,9 +71,10 @@ int main()
 
     const float peak = peakOf (audio);
     const float peakDb = juce::Decibels::gainToDecibels (juce::jmax (peak, 1.0e-8f));
-    if (peak > 1.08f)
+    const float ceilingLinear = juce::Decibels::decibelsToGain (-0.9f);
+    if (peak > ceilingLinear + 0.002f)
     {
-        std::cerr << "FAIL: output peak escaped safety bound: " << peakDb << " dBFS\n";
+        std::cerr << "FAIL: output peak escaped limiter ceiling: " << peakDb << " dBFS\n";
         return 3;
     }
 
@@ -81,6 +82,27 @@ int main()
     {
         std::cerr << "FAIL: meters invalid\n";
         return 4;
+    }
+
+    // Silence must not wind Smart Gain up to a large positive value.
+    {
+        MasterEngine silenceEngine;
+        silenceEngine.prepare (sr, block, channels);
+        MasterSettings silentSettings;
+        silentSettings.smartGain = true;
+        silentSettings.smartMaxGainDb = 12.0f;
+        silentSettings.ditherOn = false;
+        silenceEngine.setSettings (silentSettings);
+        juce::AudioBuffer<float> silent (channels, block);
+        silent.clear();
+        for (int pass = 0; pass < 80; ++pass)
+            silenceEngine.process (silent);
+
+        if (std::abs (silenceEngine.smartGainAppliedDb.load()) > 0.5f)
+        {
+            std::cerr << "FAIL: Smart Gain winds up on silence\n";
+            return 6;
+        }
     }
 
     settings.masterBypass = true;

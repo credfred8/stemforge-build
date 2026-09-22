@@ -269,7 +269,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
     setBool ("masterBypass", false);
     setBool ("smartGain", true);
     set ("inputTrim", 0.0f);
-    set ("targetInput", -18.0f);
+    set ("targetInput", -17.0f);
     set ("smartSpeed", 0.32f);
     set ("smartMaxGain", 9.0f);
 
@@ -325,15 +325,16 @@ void MasterForgeAudioProcessor::applyPreset (int index)
     switch (currentPreset)
     {
         case 0: // Boom Bap - DENSE PUNCH
+            set ("targetInput", -16.0f);
             set ("lowShelf", 1.0f); set ("lowShelfHz", 92.0f);
             set ("lowMid", -0.9f); set ("lowMidHz", 300.0f);
             set ("presence", 0.7f); set ("air", 0.35f);
             set ("glue", 0.52f); set ("glueThreshold", -18.0f); set ("glueRatio", 2.5f);
-            set ("glueAttack", 28.0f); set ("glueRelease", 150.0f); set ("glueMix", 0.78f);
+            set ("glueAttack", 28.0f); set ("glueRelease", 150.0f); set ("glueMakeup", 0.5f); set ("glueMix", 0.78f);
             set ("impact", 0.52f); set ("impactSpeed", 0.62f);
             set ("analog", 0.22f); set ("analogMix", 0.60f);
-            set ("clipDrive", 2.0f); set ("clipShape", 0.62f);
-            set ("limiterDrive", 4.2f); set ("limiterRelease", 105.0f);
+            set ("clipDrive", 2.4f); set ("clipShape", 0.58f);
+            set ("limiterDrive", 5.0f); set ("ceiling", -0.8f); set ("limiterRelease", 110.0f);
             set ("widthLow", 0.78f); set ("widthMid", 1.01f); set ("widthHigh", 1.08f);
             break;
 
@@ -345,6 +346,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         case 2: // Modern hip-hop
+            set ("targetInput", -16.0f);
             set ("lowShelf", 0.6f); set ("lowMid", -1.1f); set ("presence", 1.0f); set ("air", 1.2f);
             set ("dynamicEq", 0.42f); set ("resonance", 0.28f);
             set ("multiband", 0.42f); set ("impact", 0.36f);
@@ -353,6 +355,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         case 3: // Trap loud clean
+            set ("targetInput", -15.5f);
             set ("lowShelf", 0.35f); set ("lowMid", -1.0f); set ("presence", 0.9f); set ("air", 1.6f);
             set ("dynamicEq", 0.46f); set ("multiband", 0.48f);
             set ("glue", 0.30f); set ("impact", 0.30f); set ("exciter", 0.22f);
@@ -361,6 +364,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         case 4: // Streaming transparent
+            set ("targetInput", -18.0f);
             set ("lowShelf", 0.1f); set ("lowMid", -0.35f); set ("presence", 0.2f); set ("air", 0.3f);
             set ("dynamicEq", 0.18f); set ("resonance", 0.14f);
             set ("glue", 0.18f); set ("glueMix", 0.50f); set ("multiband", 0.16f); set ("impact", 0.12f);
@@ -369,6 +373,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         case 5: // Vinyl warm glue
+            set ("targetInput", -17.0f);
             set ("lowShelf", 1.1f); set ("lowMid", 0.1f); set ("presence", -0.5f); set ("air", -1.1f);
             set ("glue", 0.58f); set ("glueThreshold", -19.0f); set ("glueRatio", 2.2f);
             set ("analog", 0.55f); set ("analogTone", 0.34f); set ("analogMix", 0.80f);
@@ -376,6 +381,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         case 6: // Drums hard punch
+            set ("targetInput", -16.5f);
             set ("lowShelf", 0.7f); set ("presence", 1.1f);
             set ("glue", 0.42f); set ("glueAttack", 35.0f); set ("glueRelease", 110.0f);
             set ("impact", 0.76f); set ("impactSpeed", 0.78f); set ("impactMix", 0.86f);
@@ -383,6 +389,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         case 7: // Mixbus open dynamic
+            set ("targetInput", -18.0f);
             set ("lowShelf", 0.2f); set ("lowMid", -0.3f); set ("presence", 0.2f); set ("air", 0.2f);
             set ("dynamicEq", 0.14f); set ("resonance", 0.10f);
             set ("glue", 0.18f); set ("glueMix", 0.45f); set ("multiband", 0.12f); set ("impact", 0.10f);
@@ -391,6 +398,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             break;
 
         default: // Safe master
+            set ("targetInput", -18.0f);
             set ("lowShelf", 0.0f); set ("lowMid", -0.2f); set ("presence", 0.1f); set ("air", 0.1f);
             set ("dynamicEq", 0.16f); set ("resonance", 0.10f);
             set ("glue", 0.20f); set ("multiband", 0.16f); set ("impact", 0.10f);

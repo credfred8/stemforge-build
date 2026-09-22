@@ -1,4 +1,4 @@
-name: Build MasterForge ONE v2 PRO
+name: Build MasterForge ONE v2.1 PRO
 
 on:
   push:
@@ -75,10 +75,10 @@ jobs:
           Write-Host "Verified VST3 binary: $($vst3Binary.FullName) $($vst3Binary.Length) bytes"
           Write-Host "Verified standalone: $($standalone.FullName) $($standalone.Length) bytes"
 
-      - name: Upload MasterForge ONE v2 PRO
+      - name: Upload MasterForge ONE v2.1 PRO
         uses: actions/upload-artifact@v4
         with:
-          name: MasterForge-ONE-v2-PRO-Windows-x64
+          name: MasterForge-ONE-v2.1-PRO-Windows-x64
           path: masterforge_one/dist
           if-no-files-found: error
           compression-level: 9
