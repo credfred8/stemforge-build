@@ -37,6 +37,14 @@ int main()
     settings.inputTrimDb = 0.0f;
     settings.limiterCeilingDb = -0.9f;
     settings.limiterDriveDb = 4.5f;
+    settings.limiterCharacter = 3.5f;
+    settings.limiterUpwardDb = 1.5f;
+    settings.limiterSoftClip = 0.08f;
+    settings.limiterSoftClipMode = 1;
+    settings.limiterTransientEmphasis = 0.24f;
+    settings.limiterStereoTransient = 0.18f;
+    settings.limiterStereoSustain = 0.08f;
+    settings.limiterTruePeak = true;
     settings.clipDriveDb = 1.0f;
     settings.ditherOn = false;
     settings.exciterOn = true;

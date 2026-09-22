@@ -142,9 +142,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout MasterForgeAudioProcessor::c
     l.add (std::make_unique<FloatP> ("limiterDrive", "Maximizer Drive", range (0.0f, 14.0f, 0.1f), 3.0f));
     l.add (std::make_unique<FloatP> ("ceiling", "Ceiling", range (-3.0f, -0.1f, 0.01f), -0.9f));
     l.add (std::make_unique<FloatP> ("limiterRelease", "Limiter Release", range (20.0f, 500.0f, 1.0f), 120.0f));
+    l.add (std::make_unique<FloatP> ("limiterCharacter", "Maximizer Character", range (0.0f, 10.0f, 0.01f), 4.0f));
+    l.add (std::make_unique<FloatP> ("limiterUpward", "Upward Compress", range (0.0f, 10.0f, 0.1f), 0.0f));
+    l.add (std::make_unique<FloatP> ("limiterSoftClip", "Soft Clip Amount", range (0.0f, 1.0f, 0.001f), 0.0f));
+    const juce::StringArray softClipModes { "H", "M", "L" };
+    l.add (std::make_unique<ChoiceP> ("limiterSoftClipMode", "Soft Clip Mode", softClipModes, 1));
+    l.add (std::make_unique<FloatP> ("limiterTransient", "Transient Emphasis", range (0.0f, 2.0f, 0.001f), 0.0f));
+    l.add (std::make_unique<FloatP> ("limiterStereoTransient", "Stereo Independence Transient", range (0.0f, 1.0f, 0.001f), 0.0f));
+    l.add (std::make_unique<FloatP> ("limiterStereoSustain", "Stereo Independence Sustain", range (0.0f, 1.0f, 0.001f), 0.0f));
+    l.add (std::make_unique<BoolP> ("limiterTruePeak", "True Peak", true));
 
     l.add (std::make_unique<FloatP> ("outputTrim", "Output Trim", range (-12.0f, 6.0f, 0.1f), 0.0f));
-    l.add (std::make_unique<BoolP> ("ditherOn", "Dither", true));
+    l.add (std::make_unique<BoolP> ("ditherOn", "Dither", false));
 
     return l;
 }
@@ -277,6 +286,14 @@ MasterSettings MasterForgeAudioProcessor::readSettings() const
     s.limiterDriveDb = g ("limiterDrive");
     s.limiterCeilingDb = g ("ceiling");
     s.limiterReleaseMs = g ("limiterRelease");
+    s.limiterCharacter = g ("limiterCharacter");
+    s.limiterUpwardDb = g ("limiterUpward");
+    s.limiterSoftClip = g ("limiterSoftClip");
+    s.limiterSoftClipMode = (int) g ("limiterSoftClipMode");
+    s.limiterTransientEmphasis = g ("limiterTransient");
+    s.limiterStereoTransient = g ("limiterStereoTransient");
+    s.limiterStereoSustain = g ("limiterStereoSustain");
+    s.limiterTruePeak = b ("limiterTruePeak");
 
     s.outputTrimDb = g ("outputTrim");
     s.ditherOn = b ("ditherOn");
@@ -368,6 +385,14 @@ void MasterForgeAudioProcessor::applyPreset (int index)
 
     setBool ("limiterOn", true);
     set ("limiterDrive", 3.2f); set ("ceiling", -0.9f); set ("limiterRelease", 120.0f);
+    set ("limiterCharacter", 4.0f);
+    set ("limiterUpward", 0.0f);
+    set ("limiterSoftClip", 0.0f);
+    set ("limiterSoftClipMode", 1.0f);
+    set ("limiterTransient", 0.0f);
+    set ("limiterStereoTransient", 0.0f);
+    set ("limiterStereoSustain", 0.0f);
+    setBool ("limiterTruePeak", true);
 
     set ("outputTrim", 0.0f);
     setBool ("ditherOn", false);
@@ -387,6 +412,8 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             set ("analog", 0.22f); set ("analogMix", 0.60f);
             set ("clipDrive", 2.4f); set ("clipShape", 0.58f);
             set ("limiterDrive", 5.0f); set ("ceiling", -0.8f); set ("limiterRelease", 110.0f);
+            set ("limiterCharacter", 3.8f); set ("limiterUpward", 1.2f); set ("limiterSoftClip", 0.06f);
+            set ("limiterTransient", 0.28f); set ("limiterStereoTransient", 0.18f); set ("limiterStereoSustain", 0.08f);
             set ("widthLow", 0.78f); set ("widthMid", 1.01f); set ("widthHigh", 1.08f);
             break;
 
@@ -404,6 +431,8 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             set ("multiband", 0.42f); set ("impact", 0.36f);
             set ("exciter", 0.18f); set ("widthHigh", 1.16f);
             set ("clipDrive", 2.2f); set ("limiterDrive", 5.2f); set ("limiterRelease", 90.0f);
+            set ("limiterCharacter", 3.2f); set ("limiterUpward", 1.4f); set ("limiterSoftClip", 0.05f);
+            set ("limiterTransient", 0.22f); set ("limiterStereoTransient", 0.24f); set ("limiterStereoSustain", 0.10f);
             break;
 
         case 3: // Trap loud clean
@@ -413,6 +442,8 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             set ("glue", 0.30f); set ("impact", 0.30f); set ("exciter", 0.22f);
             set ("clipDrive", 3.0f); set ("clipShape", 0.68f);
             set ("limiterDrive", 6.0f); set ("ceiling", -0.8f); set ("limiterRelease", 75.0f);
+            set ("limiterCharacter", 2.7f); set ("limiterUpward", 1.8f); set ("limiterSoftClip", 0.08f);
+            set ("limiterTransient", 0.18f); set ("limiterStereoTransient", 0.28f); set ("limiterStereoSustain", 0.12f);
             break;
 
         case 4: // Streaming transparent
@@ -546,6 +577,14 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             set ("limiterDrive", 0.0f);
             set ("ceiling", -1.0f);
             set ("limiterRelease", 120.0f);
+            set ("limiterCharacter", 4.0f);
+            set ("limiterUpward", 0.0f);
+            set ("limiterSoftClip", 0.0f);
+            set ("limiterSoftClipMode", 1.0f);
+            set ("limiterTransient", 0.0f);
+            set ("limiterStereoTransient", 0.0f);
+            set ("limiterStereoSustain", 0.0f);
+            setBool ("limiterTruePeak", true);
 
             set ("outputTrim", 0.0f);
             setBool ("ditherOn", false);

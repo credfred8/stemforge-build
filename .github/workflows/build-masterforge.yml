@@ -1,4 +1,4 @@
-name: Build MasterForge ONE v2.5 PRO Multiband
+name: Build MasterForge ONE v2.6 PRO Studio
 
 on:
   push:
@@ -30,6 +30,14 @@ jobs:
       - name: Validate Web UI JavaScript
         shell: pwsh
         run: node --check masterforge_one/WebUI/app.js
+
+      - name: Install UI test dependency
+        shell: pwsh
+        run: npm install --no-save jsdom@24.1.3
+
+      - name: Run Web UI interaction smoke test
+        shell: pwsh
+        run: node masterforge_one/WebUI/ui_smoke.mjs
 
       - name: Configure Windows x64
         shell: pwsh
@@ -84,10 +92,10 @@ jobs:
           Write-Host "Verified VST3 binary: $($vst3Binary.FullName) $($vst3Binary.Length) bytes"
           Write-Host "Verified standalone: $($standalone.FullName) $($standalone.Length) bytes"
 
-      - name: Upload MasterForge ONE v2.5 PRO Multiband
+      - name: Upload MasterForge ONE v2.6 PRO Studio
         uses: actions/upload-artifact@v4
         with:
-          name: MasterForge-ONE-v2.5-PRO-Multiband-Windows-x64
+          name: MasterForge-ONE-v2.6-PRO-Studio-Windows-x64
           path: masterforge_one/dist
           if-no-files-found: error
           compression-level: 9

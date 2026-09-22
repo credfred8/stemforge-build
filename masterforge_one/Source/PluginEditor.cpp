@@ -85,6 +85,10 @@ MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAud
         {
             handlePreset (std::move (payload));
         })
+        .withEventListener ("chain", [this] (juce::var payload)
+        {
+            handleChain (std::move (payload));
+        })
         .withResourceProvider ([this] (const auto& url)
         {
             return getResource (url);
@@ -99,7 +103,7 @@ MasterForgeAudioProcessorEditor::MasterForgeAudioProcessorEditor (MasterForgeAud
     setResizeLimits (1050, 680, 1920, 1200);
     setSize (1360, 820);
 
-    startTimerHz (30);
+    startTimerHz (60);
 }
 
 MasterForgeAudioProcessorEditor::~MasterForgeAudioProcessorEditor()
@@ -215,6 +219,11 @@ void MasterForgeAudioProcessorEditor::sendState()
     root->setProperty ("presets", juce::var (presets));
     root->setProperty ("presetIndex", processor.getPresetIndex());
 
+    juce::Array<juce::var> chain;
+    for (auto index : processor.getModuleChain())
+        chain.add (MasterForgeAudioProcessor::moduleIdForIndex (index));
+    root->setProperty ("chain", juce::var (chain));
+
     browser->emitEventIfBrowserIsVisible ("state", juce::var (root.get()));
 }
 
@@ -253,5 +262,26 @@ void MasterForgeAudioProcessorEditor::handleGesture (juce::var payload)
 void MasterForgeAudioProcessorEditor::handlePreset (juce::var payload)
 {
     processor.applyPreset (juce::jlimit (0, (int) processor.presetNames.size() - 1, (int) payload));
+    sendState();
+}
+
+
+void MasterForgeAudioProcessorEditor::handleChain (juce::var payload)
+{
+    std::vector<int> chain;
+
+    if (auto* array = payload.getArray())
+    {
+        chain.reserve ((size_t) array->size());
+
+        for (const auto& item : *array)
+        {
+            const int index = MasterForgeAudioProcessor::moduleIndexForId (item.toString());
+            if (index >= 0)
+                chain.push_back (index);
+        }
+    }
+
+    processor.setModuleChain (chain);
     sendState();
 }

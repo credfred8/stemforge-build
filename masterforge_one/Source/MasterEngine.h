@@ -135,6 +135,14 @@ struct MasterSettings
     float limiterDriveDb = 3.0f;
     float limiterCeilingDb = -0.9f;
     float limiterReleaseMs = 120.0f;
+    float limiterCharacter = 4.0f;
+    float limiterUpwardDb = 0.0f;
+    float limiterSoftClip = 0.0f;
+    int limiterSoftClipMode = 1;
+    float limiterTransientEmphasis = 0.0f;
+    float limiterStereoTransient = 0.0f;
+    float limiterStereoSustain = 0.0f;
+    bool limiterTruePeak = true;
 
     float outputTrimDb = 0.0f;
 };
@@ -232,6 +240,10 @@ public:
         lastOutputGain = 1.0f;
         limiterGain = 1.0f;
         limiterBandGain.fill (1.0f);
+        limiterUpEnv.fill (0.0f);
+        limiterFastEnv.fill (0.0f);
+        limiterSlowEnv.fill (0.0f);
+        for (auto& ch : limiterBandGainCh) ch.fill (1.0f);
         lastClipDriveGain = juce::Decibels::decibelsToGain (settings.clipDriveDb);
         lastClipCeilingGain = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
         lastLimiterDriveGain = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
@@ -924,17 +936,40 @@ private:
 
         const float limDriveTarget = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
         const float requestedCeiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
-        const float ceilingTarget = requestedCeiling * juce::Decibels::decibelsToGain (-0.20f);
+        const float safetyDb = settings.limiterTruePeak ? -0.20f : -0.04f;
+        const float ceilingTarget = requestedCeiling * juce::Decibels::decibelsToGain (safetyDb);
         const double osRate = sampleRate * 8.0;
+
+        const float character = juce::jlimit (0.0f, 10.0f, settings.limiterCharacter);
+        const float characterScale = juce::jmap (character / 10.0f, 0.58f, 1.90f);
+        const float baseRelease = juce::jlimit (18.0f, 650.0f, settings.limiterReleaseMs * characterScale);
         const std::array<float, 4> release {
-            timeCoeff (settings.limiterReleaseMs * 1.55f, osRate),
-            timeCoeff (settings.limiterReleaseMs * 1.20f, osRate),
-            timeCoeff (settings.limiterReleaseMs * 0.88f, osRate),
-            timeCoeff (settings.limiterReleaseMs * 0.68f, osRate)
+            timeCoeff (baseRelease * 1.55f, osRate),
+            timeCoeff (baseRelease * 1.18f, osRate),
+            timeCoeff (baseRelease * 0.86f, osRate),
+            timeCoeff (baseRelease * 0.66f, osRate)
         };
 
         const float bypassRelease = timeCoeff (juce::jmax (35.0f, settings.limiterReleaseMs), osRate);
         const float denom = (float) juce::jmax ((size_t) 1, up.getNumSamples() - 1);
+
+        const float upwardMax = juce::jlimit (0.0f, 10.0f, settings.limiterUpwardDb);
+        const float upwardThreshold = juce::Decibels::decibelsToGain (-24.0f);
+        const float upwardAttack = timeCoeff (30.0f, osRate);
+        const float upwardRelease = timeCoeff (260.0f, osRate);
+
+        const float transientAmount = juce::jlimit (0.0f, 2.0f, settings.limiterTransientEmphasis);
+        const float transientFast = timeCoeff (1.2f, osRate);
+        const float transientSlow = timeCoeff (34.0f, osRate);
+
+        const float softClipAmount = juce::jlimit (0.0f, 1.0f, settings.limiterSoftClip);
+        const int softMode = juce::jlimit (0, 2, settings.limiterSoftClipMode);
+        const std::array<float, 3> softThresholdDb { -30.0f, -9.0f, -3.0f };
+        const float softThreshold = juce::Decibels::decibelsToGain (softThresholdDb[(size_t) softMode]);
+
+        const float transientIndependence = juce::jlimit (0.0f, 1.0f, settings.limiterStereoTransient);
+        const float sustainIndependence = juce::jlimit (0.0f, 1.0f, settings.limiterStereoSustain);
+
         float maxReduction = 0.0f;
 
         for (size_t i = 0; i < up.getNumSamples(); ++i)
@@ -943,34 +978,54 @@ private:
             const float limDrive = juce::jmap (t, lastLimiterDriveGain, limDriveTarget);
             const float ceiling = juce::jmap (t, lastLimiterCeilingGain, ceilingTarget);
 
-            if (! enabled)
-            {
-                for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
-                {
-                    auto* d = up.getChannelPointer (ch);
-                    const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
-                    const float delayed = lookaheadRing[ringOffset];
-                    lookaheadRing[ringOffset] = std::isfinite (d[i]) ? d[i] : 0.0f;
-                    d[i] = delayed;
-                }
-
-                for (auto& g : limiterBandGain)
-                    g += (1.0f - g) * (1.0f - bypassRelease);
-
-                if (++lookaheadIndex >= lookaheadSamplesOs)
-                    lookaheadIndex = 0;
-
-                continue;
-            }
-
             std::array<std::array<float, 4>, 2> bandSample {};
+            std::array<std::array<float, 4>, 2> bandPeakCh {};
             std::array<float, 4> bandPeak {};
+            std::array<float, 2> fullPeakCh {};
             float fullPeak = 0.0f;
+            float transientness = 0.0f;
 
             for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
             {
                 auto* d = up.getChannelPointer (ch);
-                const float x = (std::isfinite (d[i]) ? d[i] : 0.0f) * limDrive;
+                float x = std::isfinite (d[i]) ? d[i] : 0.0f;
+
+                if (enabled)
+                {
+                    x *= limDrive;
+                    const float ax = std::abs (x);
+
+                    const float envCoeff = ax > limiterUpEnv[ch] ? upwardAttack : upwardRelease;
+                    limiterUpEnv[ch] = ax + envCoeff * (limiterUpEnv[ch] - ax);
+
+                    if (upwardMax > 0.0001f && limiterUpEnv[ch] < upwardThreshold)
+                    {
+                        const float quiet = juce::jlimit (0.0f, 1.0f, 1.0f - limiterUpEnv[ch] / upwardThreshold);
+                        const float gainDb = upwardMax * quiet * quiet;
+                        const float upwardGain = juce::Decibels::decibelsToGain (gainDb);
+                        x += (x * upwardGain - x) * 0.58f;
+                    }
+
+                    limiterFastEnv[ch] = ax + transientFast * (limiterFastEnv[ch] - ax);
+                    limiterSlowEnv[ch] = ax + transientSlow * (limiterSlowEnv[ch] - ax);
+                    const float tr = juce::jmax (0.0f, limiterFastEnv[ch] - limiterSlowEnv[ch]);
+                    transientness = juce::jmax (transientness, juce::jlimit (0.0f, 1.0f, tr * 10.0f));
+
+                    if (transientAmount > 0.0001f)
+                    {
+                        const float emphasis = 1.0f + transientAmount * juce::jlimit (0.0f, 0.40f, tr * 5.0f);
+                        x *= emphasis;
+                    }
+
+                    if (softClipAmount > 0.0001f && std::abs (x) > softThreshold)
+                    {
+                        const float sign = x < 0.0f ? -1.0f : 1.0f;
+                        const float over = (std::abs (x) - softThreshold) / juce::jmax (0.0001f, 1.0f - softThreshold);
+                        const float curved = softThreshold + (1.0f - softThreshold) * std::tanh (over * 2.15f);
+                        const float clipped = sign * curved;
+                        x += (clipped - x) * softClipAmount;
+                    }
+                }
 
                 float low = 0.0f, rest1 = 0.0f;
                 float lowMid = 0.0f, rest2 = 0.0f;
@@ -985,40 +1040,72 @@ private:
                 bandSample[ch][2] = highMid;
                 bandSample[ch][3] = high;
 
-                bandPeak[0] = juce::jmax (bandPeak[0], std::abs (low));
-                bandPeak[1] = juce::jmax (bandPeak[1], std::abs (lowMid));
-                bandPeak[2] = juce::jmax (bandPeak[2], std::abs (highMid));
-                bandPeak[3] = juce::jmax (bandPeak[3], std::abs (high));
-                fullPeak = juce::jmax (fullPeak, std::abs (x));
+                bandPeakCh[ch][0] = std::abs (low);
+                bandPeakCh[ch][1] = std::abs (lowMid);
+                bandPeakCh[ch][2] = std::abs (highMid);
+                bandPeakCh[ch][3] = std::abs (high);
+
+                for (int band = 0; band < 4; ++band)
+                    bandPeak[(size_t) band] = juce::jmax (bandPeak[(size_t) band], bandPeakCh[ch][(size_t) band]);
+
+                fullPeakCh[ch] = std::abs (x);
+                fullPeak = juce::jmax (fullPeak, fullPeakCh[ch]);
             }
 
-            const float overallTarget = fullPeak > ceiling
-                                      ? ceiling / juce::jmax (fullPeak, 1.0e-9f)
-                                      : 1.0f;
-            const float sumPeaks = juce::jmax (1.0e-9f, bandPeak[0] + bandPeak[1] + bandPeak[2] + bandPeak[3]);
-
-            for (int band = 0; band < 4; ++band)
+            if (enabled)
             {
-                float target = 1.0f;
+                const float overallLinkedTarget = fullPeak > ceiling
+                                                ? ceiling / juce::jmax (fullPeak, 1.0e-9f)
+                                                : 1.0f;
+                const float sumPeaks = juce::jmax (1.0e-9f, bandPeak[0] + bandPeak[1] + bandPeak[2] + bandPeak[3]);
+                const float independence = juce::jmap (transientness, sustainIndependence, transientIndependence);
 
-                if (overallTarget < 0.999999f)
+                for (int band = 0; band < 4; ++band)
                 {
-                    const float contribution = bandPeak[(size_t) band] / sumPeaks;
-                    const float pressure = juce::jlimit (0.58f, 1.85f, 0.58f + contribution * 3.0f);
-                    target = juce::jlimit (overallTarget * 0.72f,
-                                           1.0f,
-                                           1.0f - (1.0f - overallTarget) * pressure);
+                    float linkedTarget = 1.0f;
+
+                    if (overallLinkedTarget < 0.999999f)
+                    {
+                        const float contribution = bandPeak[(size_t) band] / sumPeaks;
+                        const float pressure = juce::jlimit (0.58f, 1.85f, 0.58f + contribution * 3.0f);
+                        linkedTarget = juce::jlimit (overallLinkedTarget * 0.72f,
+                                                     1.0f,
+                                                     1.0f - (1.0f - overallLinkedTarget) * pressure);
+                    }
+
+                    if (linkedTarget < limiterBandGain[(size_t) band])
+                        limiterBandGain[(size_t) band] = linkedTarget;
+                    else
+                        limiterBandGain[(size_t) band] =
+                            linkedTarget + release[(size_t) band] * (limiterBandGain[(size_t) band] - linkedTarget);
+
+                    for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
+                    {
+                        float channelTarget = 1.0f;
+                        if (bandPeakCh[ch][(size_t) band] > ceiling * 0.54f)
+                            channelTarget = juce::jmin (1.0f, (ceiling * 0.54f) / juce::jmax (bandPeakCh[ch][(size_t) band], 1.0e-9f));
+
+                        const float target = juce::jmap (independence, limiterBandGain[(size_t) band], channelTarget);
+
+                        if (target < limiterBandGainCh[ch][(size_t) band])
+                            limiterBandGainCh[ch][(size_t) band] = target;
+                        else
+                            limiterBandGainCh[ch][(size_t) band] =
+                                target + release[(size_t) band] * (limiterBandGainCh[ch][(size_t) band] - target);
+
+                        const float reductionDb =
+                            -juce::Decibels::gainToDecibels (juce::jmax (limiterBandGainCh[ch][(size_t) band], 1.0e-6f));
+                        maxReduction = juce::jmax (maxReduction, reductionDb);
+                    }
                 }
-
-                if (target < limiterBandGain[(size_t) band])
-                    limiterBandGain[(size_t) band] = target;
-                else
-                    limiterBandGain[(size_t) band] =
-                        target + release[(size_t) band] * (limiterBandGain[(size_t) band] - target);
-
-                const float reductionDb =
-                    -juce::Decibels::gainToDecibels (juce::jmax (limiterBandGain[(size_t) band], 1.0e-6f));
-                maxReduction = juce::jmax (maxReduction, reductionDb);
+            }
+            else
+            {
+                for (auto& g : limiterBandGain)
+                    g += (1.0f - g) * (1.0f - bypassRelease);
+                for (auto& chGains : limiterBandGainCh)
+                    for (auto& g : chGains)
+                        g += (1.0f - g) * (1.0f - bypassRelease);
             }
 
             for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
@@ -1033,24 +1120,28 @@ private:
 
                     const float delayed = limiterBandRing[ringOffset];
                     limiterBandRing[ringOffset] = bandSample[ch][(size_t) band];
-                    sum += delayed * limiterBandGain[(size_t) band];
+                    sum += delayed * (enabled ? limiterBandGainCh[ch][(size_t) band] : 1.0f);
                 }
 
-                up.getChannelPointer (ch)[i] = juce::jlimit (-ceiling, ceiling, sum);
+                up.getChannelPointer (ch)[i] =
+                    enabled ? juce::jlimit (-ceiling, ceiling, sum) : sum;
             }
 
             if (++lookaheadIndex >= lookaheadSamplesOs)
                 lookaheadIndex = 0;
         }
 
+        limiterSplit1.snapToZero();
+        limiterSplit2.snapToZero();
+        limiterSplit3.snapToZero();
+
         lastLimiterDriveGain = limDriveTarget;
         lastLimiterCeilingGain = ceilingTarget;
         limiterReductionDb.store (enabled ? maxReduction : 0.0f);
         limitOversampling->processSamplesDown (block);
 
-        if (enabled)
+        if (enabled && settings.limiterTruePeak)
         {
-            // Final true-peak safety guard after reconstruction.
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
                 auto* d = buffer.getWritePointer (ch);
@@ -1173,6 +1264,13 @@ private:
     float lastOutputGain = 1.0f;
     float limiterGain = 1.0f;
     std::array<float, 4> limiterBandGain { 1.0f, 1.0f, 1.0f, 1.0f };
+    std::array<std::array<float, 4>, 2> limiterBandGainCh {{
+        {{ 1.0f, 1.0f, 1.0f, 1.0f }},
+        {{ 1.0f, 1.0f, 1.0f, 1.0f }}
+    }};
+    std::array<float, 2> limiterUpEnv {};
+    std::array<float, 2> limiterFastEnv {};
+    std::array<float, 2> limiterSlowEnv {};
     float lastClipDriveGain = 1.0f;
     float lastClipCeilingGain = 1.0f;
     float lastLimiterDriveGain = 1.0f;
