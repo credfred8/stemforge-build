@@ -33,9 +33,15 @@ struct MasterSettings
     float lowMidDb = 0.0f;
     float lowMidHz = 320.0f;
     float lowMidQ = 0.85f;
+    float midDb = 0.0f;
+    float midHz = 900.0f;
+    float midQ = 0.90f;
     float presenceDb = 0.0f;
     float presenceHz = 3200.0f;
     float presenceQ = 0.90f;
+    float highMidDb = 0.0f;
+    float highMidHz = 6200.0f;
+    float highMidQ = 0.90f;
     float airDb = 0.0f;
     float airHz = 10500.0f;
 
@@ -116,7 +122,9 @@ public:
         lowCut.prepare (spec);
         lowShelf.prepare (spec);
         lowMid.prepare (spec);
+        mid.prepare (spec);
         presence.prepare (spec);
+        highMid.prepare (spec);
         air.prepare (spec);
         resonanceFilter.prepare (spec);
         glueComp.prepare (spec);
@@ -127,6 +135,10 @@ public:
             true, true);
         oversampling->initProcessing ((size_t) maxBlock);
 
+        lookaheadSamplesOs = juce::jmax (8, (int) std::ceil (sampleRate * 8.0 * 0.0015));
+        lookaheadRing.assign ((size_t) numChannels * (size_t) lookaheadSamplesOs, 0.0f);
+        lookaheadIndex = 0;
+
         dry.setSize (numChannels, maxBlock);
         glueDry.setSize (numChannels, maxBlock);
         reset();
@@ -136,9 +148,11 @@ public:
 
     void reset()
     {
-        lowCut.reset(); lowShelf.reset(); lowMid.reset(); presence.reset(); air.reset();
+        lowCut.reset(); lowShelf.reset(); lowMid.reset(); mid.reset(); presence.reset(); highMid.reset(); air.reset();
         resonanceFilter.reset(); glueComp.reset();
         if (oversampling) oversampling->reset();
+        std::fill (lookaheadRing.begin(), lookaheadRing.end(), 0.0f);
+        lookaheadIndex = 0;
 
         lowDynState.fill (0.0f);
         highDynState.fill (0.0f);
@@ -175,7 +189,9 @@ public:
 
     int getLatencySamples() const
     {
-        return oversampling ? (int) std::ceil (oversampling->getLatencyInSamples()) : 0;
+        const int osLatency = oversampling ? (int) std::ceil (oversampling->getLatencyInSamples()) : 0;
+        const int lookaheadBase = (int) std::ceil ((double) lookaheadSamplesOs / 8.0);
+        return osLatency + lookaheadBase;
     }
 
     void process (juce::AudioBuffer<float>& buffer)
@@ -207,7 +223,9 @@ public:
             lowCut.process (ctx);
             lowShelf.process (ctx);
             lowMid.process (ctx);
+            mid.process (ctx);
             presence.process (ctx);
+            highMid.process (ctx);
             air.process (ctx);
         }
 
@@ -300,7 +318,9 @@ private:
 
         const float lowHz = juce::jlimit (35.0f, 350.0f, settings.lowShelfHz);
         const float lowMidHz = juce::jlimit (90.0f, 1200.0f, settings.lowMidHz);
+        const float midHzValue = juce::jlimit (180.0f, 4000.0f, settings.midHz);
         const float presenceHz = juce::jlimit (900.0f, 8000.0f, settings.presenceHz);
+        const float highMidHzValue = juce::jlimit (1800.0f, 14000.0f, settings.highMidHz);
         const float airHz = juce::jlimit (5000.0f, 18000.0f, settings.airHz);
 
         *lowCut.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, 20.0, 0.707);
@@ -309,9 +329,15 @@ private:
         *lowMid.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
             sampleRate, lowMidHz, juce::jlimit (0.25f, 4.0f, settings.lowMidQ),
             juce::Decibels::decibelsToGain (settings.lowMidDb));
+        *mid.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
+            sampleRate, midHzValue, juce::jlimit (0.25f, 4.0f, settings.midQ),
+            juce::Decibels::decibelsToGain (settings.midDb));
         *presence.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
             sampleRate, presenceHz, juce::jlimit (0.25f, 4.0f, settings.presenceQ),
             juce::Decibels::decibelsToGain (settings.presenceDb));
+        *highMid.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
+            sampleRate, highMidHzValue, juce::jlimit (0.25f, 4.0f, settings.highMidQ),
+            juce::Decibels::decibelsToGain (settings.highMidDb));
         *air.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
             sampleRate, airHz, 0.70, juce::Decibels::decibelsToGain (settings.airDb));
 
@@ -729,8 +755,28 @@ private:
                 for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
                 {
                     auto* d = up.getChannelPointer (ch);
-                    d[i] = juce::jlimit (-ceiling, ceiling, d[i] * limiterGain);
+                    const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
+                    const float delayed = lookaheadRing[ringOffset];
+                    lookaheadRing[ringOffset] = d[i];
+                    d[i] = juce::jlimit (-ceiling, ceiling, delayed * limiterGain);
                 }
+
+                if (++lookaheadIndex >= lookaheadSamplesOs)
+                    lookaheadIndex = 0;
+            }
+            else
+            {
+                for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
+                {
+                    auto* d = up.getChannelPointer (ch);
+                    const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
+                    const float delayed = lookaheadRing[ringOffset];
+                    lookaheadRing[ringOffset] = d[i];
+                    d[i] = delayed;
+                }
+
+                if (++lookaheadIndex >= lookaheadSamplesOs)
+                    lookaheadIndex = 0;
             }
         }
 
@@ -868,9 +914,12 @@ private:
     float lastClipCeilingGain = 1.0f;
     float lastLimiterDriveGain = 1.0f;
     float lastLimiterCeilingGain = 1.0f;
+    int lookaheadSamplesOs = 8;
+    int lookaheadIndex = 0;
+    std::vector<float> lookaheadRing;
     MasterSettings settings;
 
-    Filter lowCut, lowShelf, lowMid, presence, air, resonanceFilter;
+    Filter lowCut, lowShelf, lowMid, mid, presence, highMid, air, resonanceFilter;
     juce::dsp::Compressor<float> glueComp;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     juce::AudioBuffer<float> dry;

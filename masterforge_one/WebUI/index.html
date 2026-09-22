@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MasterForge ONE</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark"><span></span><span></span><span></span></div>
+        <div>
+          <div class="brand-title">MASTERFORGE <b>ONE</b></div>
+          <div class="brand-sub">MASTERING SYSTEM · WEBVIEW2 · 8X TRUE-PEAK STAGE</div>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <div class="preset-wrap">
+          <span class="micro-label">PRESET</span>
+          <select id="presetSelect"></select>
+        </div>
+        <button id="bypassBtn" class="bypass" data-tip="Глобальный bypass. Отключает всю обработку, сохраняя задержку плагина для корректного сравнения.">
+          <span class="switch-dot"></span>
+          <span>BYPASS</span>
+        </button>
+      </div>
+    </header>
+
+    <nav id="chain" class="chain"></nav>
+
+    <main class="workspace">
+      <section class="main-column">
+        <div class="analyzer-card">
+          <div class="card-head">
+            <div>
+              <div class="eyebrow">REAL-TIME ANALYZER</div>
+              <div class="section-title">Spectrum + Parametric EQ</div>
+            </div>
+            <div class="legend">
+              <span><i class="legend-pre"></i>PRE</span>
+              <span><i class="legend-post"></i>POST</span>
+              <span><i class="legend-eq"></i>EQ</span>
+            </div>
+          </div>
+
+          <div id="eqStage" class="eq-stage">
+            <canvas id="eqCanvas"></canvas>
+            <div id="eqInspector" class="eq-inspector"></div>
+            <div class="eq-hint">EQ: тяните точки мышью · колесо меняет Q · двойной клик сбрасывает полосу</div>
+          </div>
+        </div>
+
+        <section class="module-card">
+          <div class="module-head">
+            <div class="module-title-wrap">
+              <button id="modulePower" class="module-power" aria-label="Включить модуль" data-tip="Включить или выключить выбранный модуль."></button>
+              <div>
+                <div id="moduleKicker" class="eyebrow">MODULE</div>
+                <div id="moduleTitle" class="module-title">INPUT / LEVEL</div>
+              </div>
+            </div>
+            <button id="helpBtn" class="help-btn" data-tip="Открыть подробную инструкцию по выбранному модулю.">?</button>
+          </div>
+          <div id="moduleControls" class="controls-grid"></div>
+          <div id="moduleFooter" class="module-footer"></div>
+        </section>
+      </section>
+
+      <aside class="meter-card">
+        <div class="meter-head">
+          <div>
+            <div class="eyebrow">MASTER OUT</div>
+            <div class="meter-title">Loudness</div>
+          </div>
+          <div id="qualityBadge" class="quality-badge">READY</div>
+        </div>
+
+        <div class="big-meters">
+          <div class="meter-column">
+            <div class="meter-label">IN</div>
+            <div class="meter-shell"><div id="inMeter" class="meter-fill"></div><div class="meter-gloss"></div></div>
+            <div id="inPeak" class="meter-value">-∞</div>
+          </div>
+          <div class="meter-column">
+            <div class="meter-label">OUT</div>
+            <div class="meter-shell"><div id="outMeter" class="meter-fill"></div><div class="meter-gloss"></div></div>
+            <div id="outPeak" class="meter-value">-∞</div>
+          </div>
+          <div class="meter-scale">
+            <span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-48</span>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat"><span>LUFS EST</span><b id="lufs">-∞</b></div>
+          <div class="stat"><span>CREST</span><b id="crest">0.0 dB</b></div>
+          <div class="stat"><span>CORRELATION</span><b id="corr">0.00</b></div>
+          <div class="stat"><span>LIMITER GR</span><b id="gr">0.0 dB</b></div>
+          <div class="stat"><span>INPUT GAIN</span><b id="inputGain">0.0 dB</b></div>
+        </div>
+
+        <div id="coach" class="coach">
+          <div class="coach-title">INPUT COACH</div>
+          <div id="coachText">Ожидаю аудиосигнал…</div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="tooltip" class="tooltip"></div>
+
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+      <button id="modalClose" class="modal-close">×</button>
+      <div class="eyebrow">ИНСТРУКЦИЯ</div>
+      <h2 id="modalTitle"></h2>
+      <p id="modalText"></p>
+      <div class="modal-tip">Совет: на мастеринге маленькие движения почти всегда звучат дороже больших.</div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MasterForgeOne VERSION 2.1.0 LANGUAGES C CXX)
+project(MasterForgeOne VERSION 2.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,9 +26,19 @@ juce_add_plugin(MasterForgeOne
   NEEDS_MIDI_OUTPUT FALSE
   IS_MIDI_EFFECT FALSE
   EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+  NEEDS_WEBVIEW2 TRUE
 )
 
 juce_generate_juce_header(MasterForgeOne)
+
+juce_add_binary_data(MasterForgeWebAssets
+  HEADER_NAME MasterForgeWebAssets.h
+  NAMESPACE MasterForgeWeb
+  SOURCES
+    WebUI/index.html
+    WebUI/style.css
+    WebUI/app.js
+)
 
 target_sources(MasterForgeOne PRIVATE
   Source/PluginProcessor.cpp
@@ -40,8 +50,9 @@ target_sources(MasterForgeOne PRIVATE
 
 target_compile_definitions(MasterForgeOne
   PUBLIC
-    JUCE_WEB_BROWSER=0
+    JUCE_WEB_BROWSER=1
     JUCE_USE_CURL=0
+    JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
     JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
@@ -49,6 +60,8 @@ target_link_libraries(MasterForgeOne
   PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
+    juce::juce_gui_extra
+    MasterForgeWebAssets
   PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags

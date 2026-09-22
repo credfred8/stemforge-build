@@ -46,9 +46,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout MasterForgeAudioProcessor::c
     l.add (std::make_unique<FloatP> ("lowMid", "Low Mid Gain", range (-6.0f, 6.0f, 0.1f), -0.6f));
     l.add (std::make_unique<FloatP> ("lowMidHz", "Low Mid Frequency", freqRange (90.0f, 1200.0f, 320.0f), 320.0f));
     l.add (std::make_unique<FloatP> ("lowMidQ", "Low Mid Q", range (0.25f, 4.0f, 0.01f), 0.85f));
+    l.add (std::make_unique<FloatP> ("midGain", "Mid Gain", range (-12.0f, 12.0f, 0.1f), 0.0f));
+    l.add (std::make_unique<FloatP> ("midHz", "Mid Frequency", freqRange (180.0f, 4000.0f, 900.0f), 900.0f));
+    l.add (std::make_unique<FloatP> ("midQ", "Mid Q", range (0.25f, 4.0f, 0.01f), 0.90f));
     l.add (std::make_unique<FloatP> ("presence", "Presence Gain", range (-6.0f, 6.0f, 0.1f), 0.7f));
     l.add (std::make_unique<FloatP> ("presenceHz", "Presence Frequency", freqRange (900.0f, 8000.0f, 3200.0f), 3200.0f));
     l.add (std::make_unique<FloatP> ("presenceQ", "Presence Q", range (0.25f, 4.0f, 0.01f), 0.90f));
+    l.add (std::make_unique<FloatP> ("highMidGain", "High Mid Gain", range (-12.0f, 12.0f, 0.1f), 0.0f));
+    l.add (std::make_unique<FloatP> ("highMidHz", "High Mid Frequency", freqRange (1800.0f, 14000.0f, 6200.0f), 6200.0f));
+    l.add (std::make_unique<FloatP> ("highMidQ", "High Mid Q", range (0.25f, 4.0f, 0.01f), 0.90f));
     l.add (std::make_unique<FloatP> ("air", "Air Gain", range (-6.0f, 8.0f, 0.1f), 0.8f));
     l.add (std::make_unique<FloatP> ("airHz", "Air Frequency", freqRange (5000.0f, 18000.0f, 10500.0f), 10500.0f));
 
@@ -164,9 +170,15 @@ MasterSettings MasterForgeAudioProcessor::readSettings() const
     s.lowMidDb = g ("lowMid");
     s.lowMidHz = g ("lowMidHz");
     s.lowMidQ = g ("lowMidQ");
+    s.midDb = g ("midGain");
+    s.midHz = g ("midHz");
+    s.midQ = g ("midQ");
     s.presenceDb = g ("presence");
     s.presenceHz = g ("presenceHz");
     s.presenceQ = g ("presenceQ");
+    s.highMidDb = g ("highMidGain");
+    s.highMidHz = g ("highMidHz");
+    s.highMidQ = g ("highMidQ");
     s.airDb = g ("air");
     s.airHz = g ("airHz");
 
@@ -276,7 +288,9 @@ void MasterForgeAudioProcessor::applyPreset (int index)
     setBool ("cleanEqOn", true);
     set ("lowShelf", 0.4f); set ("lowShelfHz", 105.0f);
     set ("lowMid", -0.6f); set ("lowMidHz", 320.0f); set ("lowMidQ", 0.85f);
+    set ("midGain", 0.0f); set ("midHz", 900.0f); set ("midQ", 0.90f);
     set ("presence", 0.5f); set ("presenceHz", 3200.0f); set ("presenceQ", 0.90f);
+    set ("highMidGain", 0.0f); set ("highMidHz", 6200.0f); set ("highMidQ", 0.90f);
     set ("air", 0.5f); set ("airHz", 10500.0f);
 
     setBool ("dynamicEqOn", true);
@@ -320,14 +334,16 @@ void MasterForgeAudioProcessor::applyPreset (int index)
     set ("limiterDrive", 3.2f); set ("ceiling", -0.9f); set ("limiterRelease", 120.0f);
 
     set ("outputTrim", 0.0f);
-    setBool ("ditherOn", true);
+    setBool ("ditherOn", false);
 
     switch (currentPreset)
     {
         case 0: // Boom Bap - DENSE PUNCH
             set ("targetInput", -16.0f);
             set ("lowShelf", 1.0f); set ("lowShelfHz", 92.0f);
-            set ("lowMid", -0.9f); set ("lowMidHz", 300.0f);
+            set ("lowMid", -0.9f);
+            set ("midGain", -0.25f); set ("midHz", 820.0f);
+            set ("highMidGain", 0.35f); set ("highMidHz", 5400.0f); set ("lowMidHz", 300.0f);
             set ("presence", 0.7f); set ("air", 0.35f);
             set ("glue", 0.52f); set ("glueThreshold", -18.0f); set ("glueRatio", 2.5f);
             set ("glueAttack", 28.0f); set ("glueRelease", 150.0f); set ("glueMakeup", 0.5f); set ("glueMix", 0.78f);
@@ -347,7 +363,7 @@ void MasterForgeAudioProcessor::applyPreset (int index)
 
         case 2: // Modern hip-hop
             set ("targetInput", -16.0f);
-            set ("lowShelf", 0.6f); set ("lowMid", -1.1f); set ("presence", 1.0f); set ("air", 1.2f);
+            set ("lowShelf", 0.6f); set ("lowMid", -1.1f); set ("midGain", -0.2f); set ("highMidGain", 0.45f); set ("presence", 1.0f); set ("air", 1.2f);
             set ("dynamicEq", 0.42f); set ("resonance", 0.28f);
             set ("multiband", 0.42f); set ("impact", 0.36f);
             set ("exciter", 0.18f); set ("widthHigh", 1.16f);
