@@ -26,6 +26,7 @@ private:
     void handleSetParam (juce::var payload);
     void handleGesture (juce::var payload);
     void handlePreset (juce::var payload);
+    void handleChain (juce::var payload);
 
     juce::var makeParameterSnapshot() const;
     juce::var makeMeterSnapshot() const;

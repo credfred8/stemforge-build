@@ -32,6 +32,9 @@ float rawValueFor (juce::AudioProcessorParameter& parameter, float normalised)
     if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (&parameter))
         return p->convertFrom0to1 (normalised);
 
+    if (auto* p = dynamic_cast<juce::AudioParameterChoice*> (&parameter))
+        return (float) p->getNormalisableRange().convertFrom0to1 (normalised);
+
     return normalised;
 }
 
@@ -39,6 +42,9 @@ float normalisedForRaw (juce::AudioProcessorParameter& parameter, float raw)
 {
     if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (&parameter))
         return p->convertTo0to1 (raw);
+
+    if (auto* p = dynamic_cast<juce::AudioParameterChoice*> (&parameter))
+        return p->getNormalisableRange().convertTo0to1 (raw);
 
     return juce::jlimit (0.0f, 1.0f, raw);
 }
@@ -230,7 +236,6 @@ void MasterForgeAudioProcessorEditor::handleSetParam (juce::var payload)
         normalised = normalisedForRaw (*param, (float) payload.getProperty ("raw", 0.0));
 
     param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, normalised));
-    sendState();
 }
 
 void MasterForgeAudioProcessorEditor::handleGesture (juce::var payload)

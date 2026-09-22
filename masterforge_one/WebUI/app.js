@@ -5,657 +5,722 @@ const backend = window.__JUCE__ && window.__JUCE__.backend;
 const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
 const clamp = (v,a,b) => Math.max(a, Math.min(b,v));
+const emit = (name,payload) => { if (backend) backend.emitEvent(name,payload); };
 
-let state = { params:{}, pre:Array(64).fill(-90), post:Array(64).fill(-90), meters:{}, presets:[], presetIndex:0 };
-let selectedModule = 0;
+let state = {
+  params:{}, pre:Array(64).fill(-90), post:Array(64).fill(-90),
+  meters:{}, presets:[], presetIndex:0,
+  chain:['eq','dynamic','stabilizer','comp','multiband','impact','saturation','exciter','lowend','imager','clipper','maximizer']
+};
+
+let selectedId = 'input';
 let selectedEqBand = 2;
 let eqDrag = null;
 let eqHover = -1;
+let dragChainId = null;
 let uiBuilt = false;
-let presetSignature = '';
+const heldParams = new Set();
 
-const defs = [
- ['input','INPUT / LEVEL','Gain staging','smartGain',
-  'Сначала выставьте вход. Если микс уже громкий, не добавляйте лишний gain до динамики.',
-  'Этот блок задаёт уровень, с которым весь микс входит в мастеринг-цепь. INPUT TRIM — ручная коррекция. TARGET RMS — цель Smart Gain. SPEED определяет скорость адаптации, RANGE ограничивает автоматическое усиление.',
-  [['inputTrim','INPUT TRIM','db'],['targetInput','TARGET RMS','db'],['smartSpeed','SMART SPEED','percent'],['smartMaxGain','GAIN RANGE','db']]],
- ['eq','PARAMETRIC EQ','Graphical 6-band','cleanEqOn',
-  'Двигайте точки на графике. На мастеринге обычно достаточно небольших движений.',
-  'Шестиполосный графический параметрический EQ. LOW и AIR — полки, четыре средние точки — bell. По горизонтали меняется частота, по вертикали gain, колесом мыши — Q. Двойной клик сбрасывает выбранную полосу.',
-  []],
- ['dynamic','DYNAMIC EQ','Adaptive control','dynamicEqOn',
-  'Сначала исправьте постоянный тональный баланс EQ, потом динамически ловите только выпирающие места.',
-  'Dynamic EQ приглушает избыток низа и верха только в моменты всплесков. AMOUNT задаёт силу, THRESHOLD чувствительность, ATTACK/RELEASE скорость, XOVER границы зон.',
-  [['dynamicEq','AMOUNT','percent'],['dynThreshold','THRESHOLD','db'],['dynAttack','ATTACK','ms'],['dynRelease','RELEASE','ms'],['dynLowHz','LOW XOVER','hz'],['dynHighHz','HIGH XOVER','hz']]],
- ['stabilizer','STABILIZER','Resonance control','resonanceOn',
-  'Используйте только если слышите жёсткий свист или колкость. Не делайте широкую глубокую яму без причины.',
-  'Узкополосный контроль резонансов. FREQUENCY ищет проблемную частоту, Q задаёт ширину, AMOUNT — глубину подавления.',
-  [['resonance','AMOUNT','percent'],['resonanceHz','FREQUENCY','hz'],['resonanceQ','Q','number']]],
- ['comp','VINTAGE COMP','Bus glue','glueOn',
-  'Для панча держите атаку медленнее. Если микс уже сильно прижат Dynamic EQ/Multiband, компрессор делайте мягче.',
-  'Stereo bus-компрессор для склейки. THRESHOLD и RATIO определяют степень компрессии, ATTACK сохраняет или прижимает удар, RELEASE задаёт восстановление, MAKEUP возвращает уровень, MIX позволяет параллельную компрессию.',
-  [['glue','AMOUNT','percent'],['glueThreshold','THRESHOLD','db'],['glueRatio','RATIO','ratio'],['glueAttack','ATTACK','ms'],['glueRelease','RELEASE','ms'],['glueMakeup','MAKEUP','db'],['glueMix','MIX','percent']]],
- ['multiband','MULTIBAND','Three-zone density','multibandOn',
-  'Уплотняйте только проблемную полосу. Если весь микс уже ровный, GLOBAL оставляйте небольшим.',
-  'Трёхполосная динамика. XOVER делят сигнал на LOW/MID/HIGH. GLOBAL задаёт общую силу, отдельные LOW/MID/HIGH — плотность каждой зоны.',
-  [['multiband','GLOBAL','percent'],['mbLowHz','LOW XOVER','hz'],['mbHighHz','HIGH XOVER','hz'],['mbLowAmount','LOW','percent'],['mbMidAmount','MID','percent'],['mbHighAmount','HIGH','percent']]],
- ['impact','IMPACT','Transient design','impactOn',
-  'Добавляйте punch после компрессии. Если кик или снейр начинают щёлкать — уменьшайте PUNCH/MIX.',
-  'Транзиентный модуль возвращает атаку после плотной динамической обработки. PUNCH — сила, SPEED — скорость детектора, MIX — количество обработанного сигнала.',
-  [['impact','PUNCH','percent'],['impactSpeed','SPEED','percent'],['impactMix','MIX','percent']]],
- ['saturation','SATURATION','Harmonic density','analogOn',
-  'На мастер-шине лучше чуть-чуть. Сильная сатурация быстро делает верх шершавым и съедает глубину.',
-  'Мягкая гармоническая сатурация. DRIVE добавляет гармоники и плотность, TONE меняет яркость окраски, MIX подмешивает обработку параллельно.',
-  [['analog','DRIVE','percent'],['analogTone','TONE','percent'],['analogMix','MIX','percent']]],
- ['exciter','EXCITER','Upper harmonics','exciterOn',
-  'Если AIR уже поднят в EQ, Exciter нужен меньше. Сначала сравните яркость без него.',
-  'Exciter создаёт новые верхние гармоники. FREQUENCY задаёт область, AMOUNT интенсивность, MIX количество эффекта.',
-  [['exciter','AMOUNT','percent'],['exciterHz','FREQUENCY','hz'],['exciterMix','MIX','percent']]],
- ['lowend','LOW END FOCUS','Mono-safe bass','bassMonoOn',
-  'Саб обычно полезно держать в центре. Не поднимайте MONO BELOW слишком высоко, иначе микс станет узким.',
-  'Центрирует низкие частоты для стабильного перевода на разные системы. MONO BELOW — граница, AMOUNT — степень центровки.',
-  [['bassMonoHz','MONO BELOW','hz'],['bassMonoAmount','AMOUNT','percent']]],
- ['imager','IMAGER','Three-band width','imagerOn',
-  'Низ обычно не расширяют. Если CORRELATION приближается к нулю или уходит в минус — уменьшайте ширину.',
-  'Трёхполосный stereo imager. LOW/MID/HIGH WIDTH задают ширину зон, XOVER их границы, SAFETY автоматически ограничивает опасное расширение.',
-  [['widthLow','LOW WIDTH','width'],['widthMid','MID WIDTH','width'],['widthHigh','HIGH WIDTH','width'],['imagerLowHz','LOW XOVER','hz'],['imagerHighHz','HIGH XOVER','hz'],['imagerSafety','SAFETY','percent']]],
- ['clipper','CLIPPER 8X','Peak shaving','clipperOn',
-  'Клиппер должен снимать короткие пики до лимитера. Хруст и песок = слишком много DRIVE или слишком жёсткий SHAPE.',
-  '8x oversampled soft clipper. DRIVE подаёт сигнал в клиппер, CEILING задаёт рабочий потолок, SHAPE — форму ограничения, MIX — долю эффекта.',
-  [['clipDrive','DRIVE','db'],['clipCeiling','CEILING','db2'],['clipShape','SHAPE','percent'],['clipMix','MIX','percent']]],
- ['maximizer','MAXIMIZER 8X','Look-ahead final level','limiterOn',
-  'DRIVE — главный регулятор финальной громкости. Следите за LIMITER GR справа: постоянные большие значения съедают панч.',
-  'Финальный stereo-linked look-ahead limiter. DRIVE задаёт громкость, CEILING — выходной потолок, RELEASE — скорость восстановления.',
-  [['limiterDrive','DRIVE','db'],['ceiling','CEILING','db2'],['limiterRelease','RELEASE','ms']]],
- ['output','OUTPUT','Final trim & dither',null,
-  'OUTPUT TRIM используйте для точного level-match. Dither нужен только при финальном экспорте с уменьшением битности.',
-  'Финальный выход. OUTPUT TRIM корректирует уровень после мастеринга, MASTER MIX смешивает dry/wet. DITHER обычно оставляют выключенным до финального рендера.',
-  [['outputTrim','OUTPUT TRIM','db'],['dryWet','MASTER MIX','percent'],['ditherOn','DITHER 24-BIT','toggle']]]
+const modules = [
+  {id:'input',fixed:true,title:'INPUT / LEVEL',sub:'Gain staging',toggle:'smartGain',
+   footer:'Сначала добейтесь чистого входа с запасом по пикам. Уже после этого настраивайте тон, динамику и громкость.',
+   help:'INPUT / LEVEL управляет тем, с каким уровнем сигнал входит во всю мастеринг-цепь. INPUT TRIM — ручной уровень. TARGET RMS — цель Smart Gain. SPEED — скорость его реакции. RANGE — максимальная автоматическая коррекция.',
+   controls:[
+     ['inputTrim','INPUT TRIM','db'],['targetInput','TARGET RMS','db'],['smartSpeed','SMART SPEED','percent'],['smartMaxGain','GAIN RANGE','db']
+   ]},
+  {id:'eq',title:'PARAMETRIC EQ',sub:'Graphical 6-band',toggle:'cleanEqOn',special:'eq',
+   footer:'EQ оставлен графическим специально: здесь форма кривой важнее набора отдельных фейдеров.',
+   help:'Шестиполосный графический параметрический EQ. Тяните точку: горизонталь меняет частоту, вертикаль gain. Колесо мыши над bell-полосой меняет Q. Двойной клик сбрасывает полосу.'},
+  {id:'dynamic',title:'DYNAMIC EQ',sub:'Adaptive control',toggle:'dynamicEqOn',
+   footer:'Dynamic EQ должен ловить только выпирающие области. Если он работает постоянно, сначала поправьте обычный EQ.',
+   help:'Адаптивный контроль низа и верха. AMOUNT — глубина, THRESHOLD — чувствительность, ATTACK/RELEASE — скорость, XOVER — границы зон.',
+   controls:[
+     ['dynamicEq','AMOUNT','percent'],['dynThreshold','THRESHOLD','db'],['dynAttack','ATTACK','ms'],['dynRelease','RELEASE','ms'],['dynLowHz','LOW XOVER','hz'],['dynHighHz','HIGH XOVER','hz']
+   ]},
+  {id:'stabilizer',title:'STABILIZER',sub:'Resonance control',toggle:'resonanceOn',
+   footer:'Используйте точечно. Если приходится сильно давить широкую область — вернитесь к EQ.',
+   help:'Узкополосный контроль неприятных резонансов. FREQUENCY — центр проблемы, Q — ширина, AMOUNT — глубина.',
+   controls:[['resonance','AMOUNT','percent'],['resonanceHz','FREQUENCY','hz'],['resonanceQ','Q','number']]},
+  {id:'comp',title:'VINTAGE COMP',sub:'Bus glue',toggle:'glueOn',
+   footer:'Для панча обычно оставляют атаку медленнее. Следите, чтобы компрессор не работал тяжело после Dynamic EQ и Multiband.',
+   help:'Stereo bus compressor для склейки. THRESHOLD/RATIO задают компрессию, ATTACK сохраняет или прижимает транзиенты, RELEASE задаёт возврат, MAKEUP возвращает уровень, MIX даёт параллельную компрессию.',
+   controls:[
+     ['glueThreshold','THRESHOLD','db','v'],['glueRatio','RATIO','ratio','v'],['glueAttack','ATTACK','ms'],['glueRelease','RELEASE','ms'],['glueMakeup','MAKEUP','db'],['glueMix','MIX','percent'],['glue','AMOUNT','percent']
+   ]},
+  {id:'multiband',title:'MULTIBAND',sub:'Three-band density',toggle:'multibandOn',special:'multiband',
+   footer:'Разделители полос тянутся мышью. Каждая полоса имеет отдельный фейдер плотности.',
+   help:'Трёхполосная динамика. Перетаскивайте границы LOW/MID/HIGH, затем регулируйте плотность каждой полосы отдельным вертикальным фейдером.'},
+  {id:'impact',title:'IMPACT',sub:'Transient design',toggle:'impactOn',
+   footer:'Возвращайте удар после компрессии. Если клиппер начинает слышимо хрустеть — уменьшайте PUNCH.',
+   help:'Транзиентный модуль. PUNCH усиливает атаку, SPEED меняет скорость детектора, MIX задаёт количество эффекта.',
+   controls:[['impact','PUNCH','percent','v'],['impactSpeed','SPEED','percent'],['impactMix','MIX','percent']]},
+  {id:'saturation',title:'SATURATION',sub:'Harmonic density',toggle:'analogOn',
+   footer:'Сатурация на мастере должна ощущаться как плотность, а не как отдельный эффект.',
+   help:'Мягкая гармоническая сатурация. DRIVE — количество гармоник, TONE — яркость окраски, MIX — параллельное смешивание.',
+   controls:[['analog','DRIVE','percent','v'],['analogTone','TONE','percent'],['analogMix','MIX','percent']]},
+  {id:'exciter',title:'EXCITER',sub:'4-band harmonics',toggle:'exciterOn',special:'exciter',
+   footer:'Это многополосный exciter: перетаскивайте 3 crossover-линии, затем регулируйте гармоники каждой полосы отдельным фейдером и выбирайте характер.',
+   help:'Четыре независимые полосы гармонического возбуждения. Три вертикальные границы делят спектр. Для каждой полосы доступны Amount и характер: Warm, Tape, Tube, Triode, Retro, Dual, Clean.'},
+  {id:'lowend',title:'LOW END FOCUS',sub:'Mono-safe bass',toggle:'bassMonoOn',
+   footer:'Низ обычно лучше держать стабильным и близким к центру. Не поднимайте MONO BELOW слишком высоко.',
+   help:'Центрирует низкие частоты. MONO BELOW задаёт верхнюю границу области, AMOUNT — степень центровки.',
+   controls:[['bassMonoHz','MONO BELOW','hz'],['bassMonoAmount','AMOUNT','percent','v']]},
+  {id:'imager',title:'IMAGER',sub:'Three-band width',toggle:'imagerOn',special:'imager',
+   footer:'Низ держите уже, верх можно расширять сильнее. SAFETY ограничивает опасное расширение при плохой корреляции.',
+   help:'Трёхполосный stereo imager. Перетаскивайте crossover-линии и регулируйте ширину LOW/MID/HIGH отдельными фейдерами.'},
+  {id:'clipper',title:'CLIPPER 8X',sub:'Peak shaving',toggle:'clipperOn',
+   footer:'Клиппер должен снимать короткие пики до лимитера, а не превращать мастер в слышимый дисторшн.',
+   help:'8x oversampled soft clipper. DRIVE — подача, CEILING — рабочий потолок, SHAPE — жёсткость, MIX — доля эффекта.',
+   controls:[['clipDrive','DRIVE','db','v'],['clipCeiling','CEILING','db2','v'],['clipShape','SHAPE','percent'],['clipMix','MIX','percent']]},
+  {id:'maximizer',title:'MAXIMIZER 8X',sub:'Look-ahead final level',toggle:'limiterOn',
+   footer:'Главная громкость — DRIVE. Следите за LIMITER GR: постоянное сильное подавление почти всегда ухудшает панч.',
+   help:'Финальный stereo-linked look-ahead limiter. DRIVE задаёт громкость, CEILING — выходной потолок, RELEASE — скорость восстановления.',
+   controls:[['limiterDrive','DRIVE','db','v'],['ceiling','CEILING','db2','v'],['limiterRelease','RELEASE','ms']]},
+  {id:'output',fixed:true,title:'OUTPUT',sub:'Final stage',toggle:null,
+   footer:'OUTPUT TRIM нужен для точного level-match. Dither оставляйте OFF до финального экспорта, если он вообще требуется.',
+   help:'Финальный выход. OUTPUT TRIM — последняя коррекция уровня, MASTER MIX — dry/wet всей основной цепи, DITHER — TPDF dither для финального экспорта.',
+   controls:[['outputTrim','OUTPUT TRIM','db'],['dryWet','MASTER MIX','percent'],['ditherOn','DITHER 24-BIT','toggle']]}
 ];
 
-const modules = defs.map((d,i) => ({
- id:d[0], title:d[1], sub:d[2], toggle:d[3], footer:d[4], help:d[5], special:i===1?'eq':null,
- params:d[6].map(x => ({id:x[0],label:x[1],unit:x[2],type:x[2]==='toggle'?'toggle':null}))
-}));
+const moduleMap = Object.fromEntries(modules.map(m => [m.id,m]));
+const processingIds = modules.filter(m=>!m.fixed).map(m=>m.id);
 
 const guidance = {
- inputTrim:{body:'Ручной gain до всей обработки. Он влияет на то, насколько сильно будут работать компрессор, сатурация, клиппер и лимитер.',range:'Старт: 0 dB. Обычно: -3…+3 dB. Если входные пики уже выше -6 dBFS — чаще лучше убавить, а не прибавлять.'},
- targetInput:{body:'Цель Smart Gain по среднему уровню. Чем значение выше, тем плотнее сигнал входит в последующие блоки.',range:'Старт: -18 dBFS. Плотный hip-hop: примерно -17…-15 dBFS, только если исходник чистый и без клиппинга.'},
- smartSpeed:{body:'Скорость, с которой Smart Gain догоняет целевой уровень. Слишком быстрое значение может слышимо качать громкость.',range:'Обычно: 20–45%. Для естественного мастеринга начинайте с 25–35%.'},
- smartMaxGain:{body:'Максимум, на который Smart Gain может поднять или опустить вход.',range:'Обычно: 6–9 dB. Больший диапазон нужен только для очень тихого или неровного исходника.'},
+  inputTrim:['Ручной gain до всей обработки. Чем выше вход, тем сильнее будут реагировать динамика, сатурация, клиппер и лимитер.','Старт: 0 dB. Обычно -3…+3 dB. Если пики уже близко к 0 dBFS — лучше убавить.'],
+  targetInput:['Цель Smart Gain по среднему уровню. Более высокое значение подаёт цепь плотнее.','Старт: -18 dBFS. Для плотного hip-hop часто -17…-15 dBFS, только если исходник чистый.'],
+  smartSpeed:['Скорость изменения Smart Gain. Слишком быстрое значение может слышимо качать уровень.','Обычно 20–45%. Безопасный старт 25–35%.'],
+  smartMaxGain:['Максимальная автоматическая коррекция входа.','Обычно 6–9 dB. Больше — только для очень тихого исходника.'],
 
- dynamicEq:{body:'Общая сила динамического подавления низа и верха, когда они становятся избыточными.',range:'Обычно: 15–35%. Выше 45% — уже заметная коррекция, используйте только при реальной проблеме.'},
- dynThreshold:{body:'Порог срабатывания Dynamic EQ. Ниже значение — модуль реагирует чаще.',range:'Старт: около -20 dB. Часто рабочая зона: -24…-16 dB.'},
- dynAttack:{body:'Как быстро Dynamic EQ реагирует на всплеск.',range:'Обычно: 10–30 ms. Быстрее — жёстче и чище; медленнее — естественнее и ударнее.'},
- dynRelease:{body:'Как быстро подавление отпускает после всплеска.',range:'Обычно: 120–250 ms. Слишком короткий Release может давать нервное движение.'},
- dynLowHz:{body:'Граница низкой динамической зоны.',range:'Обычно: 180–350 Hz. Ниже — больше контроль саба, выше — захватывается нижняя середина.'},
- dynHighHz:{body:'Граница верхней динамической зоны.',range:'Обычно: 4–8 kHz. Ниже — сильнее контролируется резкость, выше — в основном воздух и тарелки.'},
+  dynamicEq:['Сила динамического подавления избытка энергии.','Обычно 15–35%. Выше 45% — уже заметное вмешательство.'],
+  dynThreshold:['Порог срабатывания. Чем ниже, тем чаще модуль работает.','Старт около -20 dB. Часто рабочая зона -24…-16 dB.'],
+  dynAttack:['Скорость реакции на всплеск.','Обычно 10–30 ms. Быстрее = жёстче, медленнее = естественнее.'],
+  dynRelease:['Скорость отпускания после всплеска.','Обычно 120–250 ms. Очень короткий Release может давать нервное движение.'],
+  dynLowHz:['Граница низкой динамической зоны.','Обычно 180–350 Hz.'],
+  dynHighHz:['Граница верхней динамической зоны.','Обычно 4–8 kHz.'],
 
- resonance:{body:'Глубина подавления выбранного резонанса.',range:'Обычно: 10–30%. Если нужно больше 40%, сначала проверьте, точно ли выбрана правильная частота.'},
- resonanceHz:{body:'Частота, где слышится свист, звон или неприятная жёсткость.',range:'Ищите на слух. Часто проблемная зона мастера: примерно 2–6 kHz, но это зависит от микса.'},
- resonanceQ:{body:'Ширина подавления. Большой Q = узкая точечная коррекция.',range:'Обычно: Q 2–5. Для очень узкого свиста можно выше; для общей жёсткости — ниже.'},
+  resonance:['Глубина подавления выбранного резонанса.','Обычно 10–30%. Если нужно намного больше — перепроверьте частоту.'],
+  resonanceHz:['Частота проблемного свиста/жёсткости.','Часто 2–6 kHz, но ищите на слух.'],
+  resonanceQ:['Ширина коррекции. Большой Q = узкая полоса.','Обычно Q 2–5.'],
 
- glue:{body:'Общая интенсивность bus-компрессии.',range:'Обычно: 20–50%. Цель — склейка без ощущения, что микс "сел".'},
- glueThreshold:{body:'Порог компрессора. Ниже порог — больше gain reduction.',range:'Настраивайте по результату: для мастера часто достаточно 1–3 dB реального gain reduction.'},
- glueRatio:{body:'Насколько сильно компрессор давит сигнал выше порога.',range:'Обычно: 1.5:1–2.5:1. Для мастеринга редко нужен высокий Ratio.'},
- glueAttack:{body:'Скорость срабатывания. Быстрая атака сильнее съедает кик и снейр.',range:'Для панча: примерно 20–40 ms. Для более мягкого контроля можно 5–20 ms.'},
- glueRelease:{body:'Скорость восстановления после компрессии.',range:'Обычно: 100–250 ms. Подбирайте так, чтобы компрессор успевал отпустить к следующему сильному удару.'},
- glueMakeup:{body:'Компенсация громкости после компрессии.',range:'Обычно: 0…+1.5 dB. Сравнивайте bypass на похожей громкости, иначе громче почти всегда кажется лучше.'},
- glueMix:{body:'Баланс обработанного и исходного сигнала внутри компрессора.',range:'Обычно: 50–80%. Меньше Mix = больше сохранённых транзиентов.'},
+  glue:['Общая интенсивность glue-компрессии.','Обычно 20–50%.'],
+  glueThreshold:['Порог компрессора. Ниже порог = больше gain reduction.','Для мастера часто достаточно 1–3 dB фактического GR.'],
+  glueRatio:['Степень компрессии выше порога.','Обычно 1.5:1–2.5:1.'],
+  glueAttack:['Скорость срабатывания. Быстро = меньше транзиентов.','Для панча обычно 20–40 ms.'],
+  glueRelease:['Скорость восстановления.','Обычно 100–250 ms.'],
+  glueMakeup:['Компенсационный уровень после компрессора.','Обычно 0…+1.5 dB. Сравнивайте на похожей громкости.'],
+  glueMix:['Параллельное смешивание компрессора.','Обычно 50–80%.'],
+  multiband:['Общая сила многополосной динамики.','Обычно 10–35%.'],
+  mbLowAmount:['Плотность LOW-полосы.','Обычно 20–45%.'],
+  mbMidAmount:['Плотность MID-полосы.','Обычно 15–35%.'],
+  mbHighAmount:['Плотность HIGH-полосы.','Обычно 10–30%.'],
 
- multiband:{body:'Общая сила трёхполосной динамической обработки.',range:'Обычно: 10–35%. Если нужно 50%+, проверьте сначала EQ и обычный компрессор.'},
- mbLowHz:{body:'Граница LOW/MID в Multiband.',range:'Обычно: 100–220 Hz. Ниже — только саб/бас, выше — захватывается тело микса.'},
- mbHighHz:{body:'Граница MID/HIGH в Multiband.',range:'Обычно: 3.5–7 kHz.'},
- mbLowAmount:{body:'Насколько сильно уплотняется низкая полоса.',range:'Обычно: 20–45%. Если бас уже ровный после Dynamic EQ — держите ниже.'},
- mbMidAmount:{body:'Плотность средней полосы, где находится большая часть музыкальной информации.',range:'Обычно: 15–35%. Слишком много делает микс плоским.'},
- mbHighAmount:{body:'Плотность верхней полосы.',range:'Обычно: 10–30%. Высокие значения могут убрать воздух и живость.'},
+  impact:['Усиление транзиентной атаки.','Обычно 10–40%.'],
+  impactSpeed:['Скорость детектора транзиентов.','Обычно 30–65%.'],
+  impactMix:['Количество Impact в итоговом сигнале.','Обычно 40–75%.'],
+  analog:['Количество сатурации.','Обычно 5–25%.'],
+  analogTone:['Яркость сатурации.','Обычно 40–65%.'],
+  analogMix:['Количество сатурированного сигнала.','Обычно 35–65%.'],
 
- impact:{body:'Возвращает атаку транзиентов после компрессии.',range:'Обычно: 10–40%. Для drum-heavy материала можно больше, но следите за клиппером.'},
- impactSpeed:{body:'Скорость детектора транзиентов.',range:'Обычно: 30–65%. Быстрее сильнее цепляется за короткие удары.'},
- impactMix:{body:'Количество транзиентной обработки в итоговом сигнале.',range:'Обычно: 40–75%.'},
+  exciter:['Глобальная глубина гармонического возбуждения всех полос.','Обычно 20–50%.'],
+  exciterMix:['Глобальный dry/wet многополосного Exciter.','Обычно 50–80%.'],
+  exciterBand1:['Гармоники в самой низкой полосе.','Обычно 0–10%. С низом осторожно.'],
+  exciterBand2:['Гармоники в low-mid полосе.','Обычно 3–15%.'],
+  exciterBand3:['Гармоники в high-mid полосе.','Обычно 5–20%.'],
+  exciterBand4:['Гармоники в верхней полосе.','Обычно 5–18%. Если AIR EQ уже поднят — меньше.'],
 
- analog:{body:'Количество гармонической сатурации и плотности.',range:'Обычно: 5–25%. На мастер-шине маленькие значения почти всегда безопаснее.'},
- analogTone:{body:'Тон сатурации: влево темнее, вправо ярче.',range:'Обычно: 40–65%. Если микс уже яркий после EQ/Exciter — держите ближе к середине или ниже.'},
- analogMix:{body:'Доля сатурированного сигнала.',range:'Обычно: 35–65%. Для сохранения глубины начинайте около 50%.'},
+  bassMonoHz:['Частоты ниже этой точки постепенно центрируются.','Обычно 80–130 Hz.'],
+  bassMonoAmount:['Степень центровки низа.','Обычно 70–100%.'],
 
- exciter:{body:'Количество новых верхних гармоник.',range:'Обычно: 4–15%. Выше 20% на мастере быстро становится слышимым эффектом.'},
- exciterHz:{body:'Область, где Exciter становится наиболее заметным.',range:'Обычно: 6–10 kHz. Ниже — больше присутствия, выше — больше воздуха.'},
- exciterMix:{body:'Доля Exciter в итоговом сигнале.',range:'Обычно: 25–50%.'},
+  widthLow:['Ширина низкой полосы. 100% = исходная.','Обычно 70–100%.'],
+  widthMid:['Ширина середины.','Обычно 95–110%.'],
+  widthHigh:['Ширина верха.','Обычно 100–120%. Следите за correlation.'],
+  imagerSafety:['Защита от отрицательной корреляции.','Обычно 70–100%.'],
 
- bassMonoHz:{body:'Частоты ниже этой точки постепенно собираются в центр.',range:'Обычно: 80–130 Hz. Для очень широкого баса можно выше, но осторожно.'},
- bassMonoAmount:{body:'Степень центровки низких частот.',range:'Обычно: 70–100%. Для клубного/рэп-мастера часто удобно 100% ниже выбранной частоты.'},
+  clipDrive:['Drive в soft clipper. Больше = больше срезанных коротких пиков.','Обычно 0.5–2.5 dB.'],
+  clipCeiling:['Рабочий потолок клиппера.','Обычно -0.5…-0.2 dB.'],
+  clipShape:['Форма ограничения. Меньше = мягче.','Обычно 40–65%.'],
+  clipMix:['Доля клиппированного сигнала.','Обычно 80–100%.'],
 
- widthLow:{body:'Ширина низкой полосы. 100% = исходная ширина.',range:'Обычно: 70–100%. Саб редко стоит расширять.'},
- widthMid:{body:'Ширина середины.',range:'Обычно: 95–110%. Маленькое расширение обычно звучит естественнее.'},
- widthHigh:{body:'Ширина верхней полосы.',range:'Обычно: 100–120%. Следите за CORRELATION.'},
- imagerLowHz:{body:'Граница низкой полосы stereo imager.',range:'Обычно: 120–220 Hz.'},
- imagerHighHz:{body:'Граница верхней полосы stereo imager.',range:'Обычно: 4–7 kHz.'},
- imagerSafety:{body:'Насколько активно плагин ограничивает расширение при плохой фазовой корреляции.',range:'Обычно: 70–100%. Для безопасного мастера оставляйте ближе к 100%.'},
+  limiterDrive:['Главный регулятор финальной громкости.','Поднимайте по 0.5 dB. Для чистого мастера старайтесь держать постоянный GR примерно 1–4 dB.'],
+  ceiling:['Финальный выходной потолок.','Обычно -1.0…-0.7 dBFS.'],
+  limiterRelease:['Скорость отпускания лимитера.','Обычно 80–180 ms.'],
 
- clipDrive:{body:'Уровень, которым сигнал подаётся в soft clipper. Больше Drive = больше срезанных коротких пиков.',range:'Обычно: 0.5–2.5 dB. Если слышите хруст — уменьшайте Drive.'},
- clipCeiling:{body:'Рабочая граница клиппера перед финальным лимитером.',range:'Обычно: -0.5…-0.2 dB. Финальный Ceiling всё равно задаётся в Maximizer.'},
- clipShape:{body:'Форма ограничения: меньше = мягче, больше = жёстче.',range:'Обычно: 40–65%. Жёсткий shape громче, но быстрее даёт слышимые артефакты.'},
- clipMix:{body:'Доля клиппированного сигнала.',range:'Обычно: 80–100%. Если клиппер используется как тонкий эффект — можно меньше.'},
-
- limiterDrive:{body:'Главный регулятор финальной громкости. Чем выше Drive, тем больше limiter gain reduction.',range:'Поднимайте по 0.5 dB и следите за LIMITER GR. Для чистого мастера старайтесь держать постоянный GR примерно в пределах 1–4 dB.'},
- ceiling:{body:'Финальный максимальный уровень выхода.',range:'Обычно: -1.0…-0.7 dBFS для безопасного true-peak запаса. Для специальных задач можно иначе.'},
- limiterRelease:{body:'Как быстро лимитер отпускает после пика.',range:'Обычно: 80–180 ms. Слишком быстро может давать зернистость, слишком медленно — съедать удар.'},
-
- outputTrim:{body:'Финальная ручная коррекция после всей цепи.',range:'Обычно: -1…+1 dB. Используйте для level-match, а не для достижения громкости.'},
- dryWet:{body:'Глобальный dry/wet основной мастеринг-цепи.',range:'Для полноценного мастеринга обычно 100%. Уменьшайте только для параллельного характера.'},
- ditherOn:{body:'Очень тихий TPDF dither в самом конце.',range:'Обычно OFF во время работы. Включайте только при финальном экспорте, если реально уменьшается битность.'}
+  outputTrim:['Последняя коррекция уровня после всей цепи.','Обычно -1…+1 dB. Используйте для level-match.'],
+  dryWet:['Глобальный dry/wet основной цепи.','Для обычного мастеринга обычно 100%.'],
+  ditherOn:['TPDF dither в самом конце.','Во время работы обычно OFF. Включайте только при необходимости финального экспорта.']
 };
 
 const eqBands = [
- {name:'LOW',freq:'lowShelfHz',gain:'lowShelf',q:null,color:'#34d8ff',gainGuide:'Обычно ±0.5–1.5 dB. Используйте для общего веса низа.'},
- {name:'LOW MID',freq:'lowMidHz',gain:'lowMid',q:'lowMidQ',color:'#65e2a2',gainGuide:'Часто здесь убирают муть. Обычно -0.5…-1.5 dB, Q около 0.6–1.4.'},
- {name:'MID',freq:'midHz',gain:'midGain',q:'midQ',color:'#ffc766',gainGuide:'Середина влияет на тело и читаемость. Начинайте с ±0.5 dB.'},
- {name:'PRESENCE',freq:'presenceHz',gain:'presence',q:'presenceQ',color:'#ff8f79',gainGuide:'Зона атаки и разборчивости. Обычно ±0.5–1.0 dB.'},
- {name:'HIGH MID',freq:'highMidHz',gain:'highMidGain',q:'highMidQ',color:'#c18cff',gainGuide:'Контролирует жёсткость/деталь. Маленькие движения звучат естественнее.'},
- {name:'AIR',freq:'airHz',gain:'air',q:null,color:'#86eaff',gainGuide:'Воздух. Обычно +0.3…+1.5 dB или лёгкое уменьшение, если микс уже яркий.'}
+  {name:'LOW',freq:'lowShelfHz',gain:'lowShelf',q:null,color:'#35d8ff',guide:'Широкая low shelf. Обычно ±0.5–1.5 dB.'},
+  {name:'LOW MID',freq:'lowMidHz',gain:'lowMid',q:'lowMidQ',color:'#66e3a2',guide:'Зона мути/тела. Часто -0.5…-1.5 dB, Q 0.6–1.4.'},
+  {name:'MID',freq:'midHz',gain:'midGain',q:'midQ',color:'#ffc866',guide:'Середина влияет на тело и читаемость. Начинайте с ±0.5 dB.'},
+  {name:'PRESENCE',freq:'presenceHz',gain:'presence',q:'presenceQ',color:'#ff8f79',guide:'Атака и разборчивость. Обычно ±0.5–1 dB.'},
+  {name:'HIGH MID',freq:'highMidHz',gain:'highMidGain',q:'highMidQ',color:'#c18cff',guide:'Контролирует жёсткость и деталь.'},
+  {name:'AIR',freq:'airHz',gain:'air',q:null,color:'#86eaff',guide:'Воздух и блеск. Обычно +0.3…+1.5 dB.'}
 ];
 
-const emit = (id,payload) => { if(backend) backend.emitEvent(id,payload); };
 const p = id => state.params[id] || {norm:0,raw:0,def:0,defRaw:0,text:''};
+const format = (unit,raw) => {
+  if(!Number.isFinite(raw)) return '—';
+  if(unit==='db') return raw.toFixed(1)+' dB';
+  if(unit==='db2') return raw.toFixed(2)+' dB';
+  if(unit==='hz') return raw>=1000?(raw/1000).toFixed(raw>=10000?1:2)+' kHz':Math.round(raw)+' Hz';
+  if(unit==='ms') return (raw<10?raw.toFixed(1):Math.round(raw))+' ms';
+  if(unit==='percent') return Math.round(raw*100)+' %';
+  if(unit==='width') return Math.round(raw*100)+' %';
+  if(unit==='ratio') return raw.toFixed(1)+' : 1';
+  if(unit==='number') return raw.toFixed(2);
+  return raw.toFixed(2);
+};
 
-function fmt(spec,raw){
- if(!Number.isFinite(raw)) return '—';
- if(spec.unit==='db') return raw.toFixed(1)+' dB';
- if(spec.unit==='db2') return raw.toFixed(2)+' dB';
- if(spec.unit==='hz') return raw>=1000?(raw/1000).toFixed(raw>=10000?1:2)+' kHz':Math.round(raw)+' Hz';
- if(spec.unit==='ms') return (raw<10?raw.toFixed(1):Math.round(raw))+' ms';
- if(spec.unit==='percent') return Math.round(raw*100)+' %';
- if(spec.unit==='width') return Math.round(raw*100)+' %';
- if(spec.unit==='ratio') return raw.toFixed(1)+' : 1';
- if(spec.unit==='number') return raw.toFixed(2);
- return raw.toFixed(2);
+function hold(id){ heldParams.add(id); emit('gesture',{id,phase:'begin'}); }
+function release(id){ emit('gesture',{id,phase:'end'}); setTimeout(()=>heldParams.delete(id),90); }
+
+function setNorm(id,n,notify=true){
+  n=clamp(n,0,1);
+  if(state.params[id]) state.params[id].norm=n;
+  if(notify) emit('setParam',{id,norm:n});
+}
+function setRaw(id,raw,notify=true){
+  if(state.params[id]) state.params[id].raw=raw;
+  if(notify) emit('setParam',{id,raw});
 }
 
-function setNorm(id,v){ v=clamp(v,0,1); if(state.params[id]) state.params[id].norm=v; emit('setParam',{id:id,norm:v}); syncChain(); syncModule(); updateBypass(); }
-function setRaw(id,v){ if(state.params[id]) state.params[id].raw=v; emit('setParam',{id:id,raw:v}); syncModule(); draw(); }
-function gesture(id,phase){ emit('gesture',{id:id,phase:phase}); }
-
-function buildPresetMenu(){
- const sig=(state.presets||[]).join('|');
- if(sig===presetSignature) return;
- presetSignature=sig;
- const menu=$('#presetMenu');
- menu.innerHTML='';
- (state.presets||[]).forEach((name,i)=>{
-   const b=document.createElement('button');
-   b.className='preset-item'+(name.toUpperCase().includes('EMPTY')||name.toUpperCase().includes('INIT')?' init':'');
-   b.textContent=name;
-   b.dataset.index=String(i);
-   b.onclick=e=>{
-     e.stopPropagation();
-     emit('preset',i);
-     state.presetIndex=i;
-     closePresetMenu();
-     syncPreset();
-   };
-   menu.appendChild(b);
- });
- syncPreset();
+function mergeRemote(next){
+  if(!next) return;
+  const old=state.params||{};
+  const incoming=next.params||{};
+  const merged={};
+  Object.keys(incoming).forEach(id=>{
+    merged[id]=heldParams.has(id)&&old[id] ? {...incoming[id],...old[id]} : incoming[id];
+  });
+  state={...next,params:merged};
+  if(!Array.isArray(state.chain)) state.chain=processingIds.slice();
 }
 
-function syncPreset(){
- const name=(state.presets&&state.presets[state.presetIndex])||'Preset';
- $('#presetButtonText').textContent=name;
- $$('.preset-item').forEach((el,i)=>el.classList.toggle('active',i===state.presetIndex));
-}
-
-function togglePresetMenu(){
- const open=!$('#presetMenu').classList.contains('open');
- $('#presetMenu').classList.toggle('open',open);
- $('#presetButton').classList.toggle('open',open);
- $('#presetButton').setAttribute('aria-expanded',open?'true':'false');
-}
-function closePresetMenu(){
- $('#presetMenu').classList.remove('open');
- $('#presetButton').classList.remove('open');
- $('#presetButton').setAttribute('aria-expanded','false');
-}
-
-function buildChain(){
- const root=$('#chain');
- root.innerHTML='';
- modules.forEach((m,i)=>{
-   const el=document.createElement('div');
-   el.className='chain-item';
-   el.tabIndex=0;
-   el.dataset.module=String(i);
-
-   const power=document.createElement('button');
-   power.className='chain-power';
-   power.dataset.tip=m.toggle?'Быстро включить или выключить этот модуль.':'Этот выходной блок всегда доступен.';
-   power.onclick=e=>{
-     e.stopPropagation();
-     if(m.toggle) setNorm(m.toggle,p(m.toggle).norm>=.5?0:1);
-   };
-
-   const copy=document.createElement('div');
-   copy.className='chain-copy';
-   copy.innerHTML='<div class="chain-title">'+m.title+'</div><div class="chain-sub">'+m.sub+'</div>';
-
-   const select=()=>{selectedModule=i;syncChain();renderModule();draw();};
-   el.onclick=select;
-   el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}};
-   el.append(power,copy);
-   root.appendChild(el);
- });
- syncChain();
-}
-
-function syncChain(){
- $$('.chain-item').forEach((el,i)=>{
-   const m=modules[i];
-   const on=m.toggle?p(m.toggle).norm>=.5:true;
-   el.classList.toggle('active',i===selectedModule);
-   el.classList.toggle('enabled',on);
- });
-}
-
-function makeKnob(spec){
- const c=document.createElement('div');
- c.className='control';
- c.dataset.param=spec.id;
-
- const l=document.createElement('div');
- l.className='control-label';
- l.textContent=spec.label;
-
- const w=document.createElement('div');
- w.className='knob-wrap';
- w.dataset.paramId=spec.id;
- const k=document.createElement('div');
- k.className='knob';
- k.style.setProperty('--p',(clamp(p(spec.id).norm,0,1)*270)+'deg');
- w.appendChild(k);
-
- const v=document.createElement('div');
- v.className='control-value';
- v.textContent=fmt(spec,p(spec.id).raw);
-
- c.append(l,w,v);
-
- let sy=0,sn=0,drag=false;
- w.onpointerdown=e=>{
-   e.preventDefault();drag=true;sy=e.clientY;sn=p(spec.id).norm;
-   w.classList.add('dragging');
-   w.setPointerCapture(e.pointerId);gesture(spec.id,'begin');
- };
- w.onpointermove=e=>{
-   if(!drag)return;
-   const n=clamp(sn+(sy-e.clientY)/150,0,1);
-   k.style.setProperty('--p',(n*270)+'deg');
-   if(state.params[spec.id]) state.params[spec.id].norm=n;
-   emit('setParam',{id:spec.id,norm:n});
-   v.textContent=fmt(spec,p(spec.id).raw);
- };
- const end=e=>{
-   if(!drag)return;drag=false;w.classList.remove('dragging');
-   try{w.releasePointerCapture(e.pointerId)}catch(_){}
-   gesture(spec.id,'end');
- };
- w.onpointerup=end;w.onpointercancel=end;
- w.ondblclick=e=>{e.preventDefault();setNorm(spec.id,p(spec.id).def);};
- return c;
-}
-
-function makeToggle(spec){
- const c=document.createElement('div');
- c.className='control toggle-control';
- c.dataset.param=spec.id;
- const l=document.createElement('div');l.className='control-label';l.textContent=spec.label;
- const t=document.createElement('div');t.className='big-toggle'+(p(spec.id).norm>=.5?' on':'');t.dataset.paramId=spec.id;
- const v=document.createElement('div');v.className='control-value';v.textContent=p(spec.id).norm>=.5?'ON':'OFF';
- t.onclick=()=>setNorm(spec.id,p(spec.id).norm>=.5?0:1);
- c.append(l,t,v);
- return c;
-}
-
-function renderEqPanel(root){
- root.classList.add('eq-mode');
- const wrap=document.createElement('div');wrap.className='eq-module-panel';
- const list=document.createElement('div');list.className='eq-band-list';
-
- eqBands.forEach((b,i)=>{
-   const item=document.createElement('div');
-   item.className='eq-band';
-   item.dataset.band=String(i);
-   item.dataset.eqBand=String(i);
-   item.innerHTML='<div class="eq-band-top"><div class="eq-band-name">'+b.name+'</div><div class="eq-band-dot" style="background:'+b.color+';box-shadow:0 0 8px '+b.color+'88"></div></div>'+
-     '<div class="eq-band-values"><div><span>FREQ</span><b class="eq-freq"></b></div><div><span>GAIN</span><b class="eq-gain"></b></div></div>';
-   item.onclick=()=>{selectedEqBand=i;syncEqPanel();draw();};
-   list.appendChild(item);
- });
-
- const info=document.createElement('div');
- info.className='eq-instructions';
- info.id='eqInstructions';
- wrap.append(list,info);
- root.appendChild(wrap);
- syncEqPanel();
-}
-
-function syncEqPanel(){
- $$('.eq-band').forEach((item,i)=>{
-   const b=eqBands[i],f=p(b.freq).raw,g=p(b.gain).raw;
-   item.classList.toggle('active',i===selectedEqBand);
-   const ft=$('.eq-freq',item),gt=$('.eq-gain',item);
-   if(ft)ft.textContent=f>=1000?(f/1000).toFixed(2)+'k':Math.round(f)+' Hz';
-   if(gt)gt.textContent=(g>=0?'+':'')+g.toFixed(1)+' dB';
- });
- const b=eqBands[selectedEqBand];
- const info=$('#eqInstructions');
- if(info){
-   const q=b.q?'Q: '+p(b.q).raw.toFixed(2):'SHELF BAND';
-   info.innerHTML='<h3>'+b.name+' · '+q+'</h3><p>'+b.gainGuide+' Тяните точку на большом графике: влево/вправо — частота, вверх/вниз — gain. '+(b.q?'Колесо мыши меняет Q.':'Shelf-полоса работает шире и мягче.')+'</p>'+
-     '<div class="keys"><span class="key">DRAG = FREQ + GAIN</span>'+(b.q?'<span class="key">WHEEL = Q</span>':'')+'<span class="key">DOUBLE CLICK = RESET</span></div>';
- }
-}
-
-function renderModule(){
- const m=modules[selectedModule];
- $('#moduleTitle').textContent=m.title;
- $('#moduleKicker').textContent=m.sub.toUpperCase();
- $('#moduleFooter').textContent=m.footer;
-
- const power=$('#modulePower');
- if(m.toggle){
-   power.style.display='';
-   power.dataset.paramId=m.toggle;
-   power.onclick=()=>setNorm(m.toggle,p(m.toggle).norm>=.5?0:1);
- }else{
-   power.style.display='none';
-   power.onclick=null;
-   delete power.dataset.paramId;
- }
-
- $('#helpBtn').onclick=()=>openHelp(m);
-
- const root=$('#moduleControls');
- root.className='controls-grid';
- root.innerHTML='';
- if(m.special==='eq') renderEqPanel(root);
- else m.params.forEach(s=>root.appendChild(s.type==='toggle'?makeToggle(s):makeKnob(s)));
- syncModule();
-}
-
-function syncModule(){
- const m=modules[selectedModule];
- if(m.toggle) $('#modulePower').classList.toggle('on',p(m.toggle).norm>=.5);
-
- $$('.control[data-param]').forEach(c=>{
-   const id=c.dataset.param;
-   const spec=m.params.find(x=>x.id===id);
-   if(!spec)return;
-   const knob=$('.knob',c),val=$('.control-value',c);
-   if(knob)knob.style.setProperty('--p',(clamp(p(id).norm,0,1)*270)+'deg');
-   if(val)val.textContent=spec.type==='toggle'?(p(id).norm>=.5?'ON':'OFF'):fmt(spec,p(id).raw);
-   const tog=$('.big-toggle',c);if(tog)tog.classList.toggle('on',p(id).norm>=.5);
- });
-
- if(m.special==='eq')syncEqPanel();
-}
-
-function openHelp(m){
- $('#modalTitle').textContent=m.title;
- $('#modalText').textContent=m.help;
- $('#modal').classList.add('open');
- $('#modal').setAttribute('aria-hidden','false');
-}
-function closeHelp(){
- $('#modal').classList.remove('open');
- $('#modal').setAttribute('aria-hidden','true');
+function findControlSpec(id){
+  for(const m of modules){
+    if(!m.controls) continue;
+    for(const spec of m.controls){
+      if(spec[0]===id) return {id:spec[0],label:spec[1],unit:spec[2],orient:spec[3]||'h'};
+    }
+  }
+  return null;
 }
 
 function currentContext(id){
- const m=state.meters||{};
- if(id==='targetInput'&&Number(m.inputPeak)>-6)return 'Сейчас входные пики уже высокие. Не поднимайте TARGET RMS, сначала уберите INPUT TRIM.';
- if(id==='glue'||id==='glueThreshold'||id==='glueRatio'){
-   if(p('dynamicEq').raw>.42||p('multiband').raw>.42)return 'Предыдущая динамическая обработка уже сильная. Начинайте компрессор мягче обычного.';
- }
- if(id==='impact'&&p('glue').raw>.48)return 'Glue уже заметный. Для возврата удара начните примерно с 20–35% PUNCH, а не с максимума.';
- if((id==='exciter'||id==='exciterMix')&&p('air').raw>1.0)return 'AIR EQ уже поднят. Exciter держите ниже, чтобы верх не стал стеклянным и шершавым.';
- if((id==='widthMid'||id==='widthHigh'||id==='imagerSafety')&&Number(m.correlation)<.2)return 'CORRELATION сейчас низкая. Не расширяйте сильнее; лучше уменьшите WIDTH или поднимите SAFETY.';
- if(id==='limiterDrive'&&p('clipDrive').raw>2.2)return 'Clipper уже снимает много пиков. Добавляйте Limiter Drive небольшими шагами и следите, чтобы GR не стал постоянным.';
- if((id==='clipDrive'||id==='clipShape')&&p('impact').raw>.55)return 'IMPACT уже усиливает транзиенты. Клиппер настраивайте мягче, чтобы не получить щелчки и хруст.';
- return '';
+  const m=state.meters||{};
+  if(id==='targetInput'&&Number(m.inputPeak)>-6) return 'Сейчас входные пики уже высокие. Не поднимайте TARGET RMS — сначала снизьте INPUT TRIM.';
+  if(['glue','glueThreshold','glueRatio'].includes(id)&&(p('dynamicEq').raw>.42||p('multiband').raw>.42)) return 'До компрессора уже стоит сильная динамическая обработка. Начинайте компрессор мягче.';
+  if(id==='impact'&&p('glue').raw>.48) return 'Glue уже заметный. Начните примерно с 20–35% PUNCH.';
+  if((id.startsWith('exciterBand')||id==='exciter')&&p('air').raw>1.0) return 'AIR EQ уже поднят. Exciter держите умеренно, чтобы верх не стал шершавым.';
+  if((id.startsWith('width')||id==='imagerSafety')&&Number(m.correlation)<.2) return 'CORRELATION низкая. Не расширяйте сильнее; лучше уменьшите WIDTH.';
+  if(id==='limiterDrive'&&Number(m.limiterGR)>4) return 'LIMITER GR уже выше 4 dB. Дополнительный Drive скорее уменьшит панч, чем улучшит громкость.';
+  return '';
 }
 
-function showParamTip(id,x,y){
- const spec=modules.flatMap(m=>m.params).find(s=>s.id===id);
- const g=guidance[id];
- if(!spec||!g)return;
- $('#tooltipTitle').textContent=spec.label;
- $('#tooltipBody').textContent=g.body;
- $('#tooltipRange').textContent='Рабочая зона: '+g.range;
- $('#tooltipContext').textContent=currentContext(id);
- positionTip(x,y);
+function showTipForParam(id,x,y){
+  const spec=findControlSpec(id);
+  const g=guidance[id];
+  if(!g) return;
+  $('#tooltipTitle').textContent=spec?spec.label:id;
+  $('#tooltipBody').textContent=g[0];
+  $('#tooltipRange').textContent='Рабочая зона: '+g[1];
+  $('#tooltipContext').textContent=currentContext(id);
+  positionTip(x,y);
 }
 function showGenericTip(text,x,y){
- $('#tooltipTitle').textContent='Подсказка';
- $('#tooltipBody').textContent=text;
- $('#tooltipRange').textContent='';
- $('#tooltipContext').textContent='';
- positionTip(x,y);
+  $('#tooltipTitle').textContent='Подсказка';
+  $('#tooltipBody').textContent=text;
+  $('#tooltipRange').textContent='';
+  $('#tooltipContext').textContent='';
+  positionTip(x,y);
 }
 function showEqTip(index,x,y){
- const b=eqBands[index];
- $('#tooltipTitle').textContent=b.name+' EQ';
- $('#tooltipBody').textContent=b.gainGuide+' Горизонталь меняет частоту, вертикаль — gain.';
- $('#tooltipRange').textContent=b.q?'Q обычно начинайте около 0.7–1.2. Колесом мыши меняйте ширину.':'Это широкая shelf-полоса — используйте небольшие движения.';
- $('#tooltipContext').textContent=(b.name==='AIR'&&p('exciter').raw>.12)?'Exciter уже заметный. AIR добавляйте очень умеренно.':'';
- positionTip(x,y);
+  const b=eqBands[index];
+  $('#tooltipTitle').textContent=b.name+' EQ';
+  $('#tooltipBody').textContent=b.guide;
+  $('#tooltipRange').textContent=b.q?'Колесо мыши меняет Q. Обычно начинайте около 0.7–1.2.':'Shelf-полоса — используйте широкие и небольшие движения.';
+  $('#tooltipContext').textContent=(b.name==='AIR'&&p('exciterBand4').raw>.15)?'Верхняя полоса Exciter уже активна — AIR добавляйте осторожно.':'';
+  positionTip(x,y);
 }
 function positionTip(x,y){
- const tip=$('#tooltip');
- tip.style.left=Math.min(window.innerWidth-345,x+14)+'px';
- tip.style.top=Math.min(window.innerHeight-155,y+14)+'px';
- tip.classList.add('show');
+  const tip=$('#tooltip');
+  tip.style.left=Math.max(8,Math.min(window.innerWidth-340,x+14))+'px';
+  tip.style.top=Math.max(8,Math.min(window.innerHeight-160,y+14))+'px';
+  tip.classList.add('show');
 }
-function hideTip(){$('#tooltip').classList.remove('show');}
+function hideTip(){ $('#tooltip').classList.remove('show'); }
+
+function buildPresets(){
+  const menu=$('#presetMenu');
+  if(menu.dataset.sig===(state.presets||[]).join('|')){ syncPreset(); return; }
+  menu.dataset.sig=(state.presets||[]).join('|');
+  menu.innerHTML='';
+  (state.presets||[]).forEach((name,i)=>{
+    const b=document.createElement('button');
+    b.className='preset-item'+(name.includes('INIT')?' init':'');
+    b.textContent=name;
+    b.onclick=e=>{e.stopPropagation();emit('preset',i);state.presetIndex=i;closePreset();syncPreset();};
+    menu.appendChild(b);
+  });
+  syncPreset();
+}
+function syncPreset(){
+  $('#presetButtonText').textContent=(state.presets&&state.presets[state.presetIndex])||'Preset';
+  $$('.preset-item').forEach((el,i)=>el.classList.toggle('active',i===state.presetIndex));
+}
+function togglePreset(){const open=!$('#presetMenu').classList.contains('open');$('#presetMenu').classList.toggle('open',open);$('#presetButton').classList.toggle('open',open);}
+function closePreset(){$('#presetMenu').classList.remove('open');$('#presetButton').classList.remove('open');}
+
+function chainIds(){ return Array.isArray(state.chain)?state.chain.filter(id=>moduleMap[id]&&!moduleMap[id].fixed):processingIds.slice(); }
+function sendChain(ids){ state.chain=ids.slice(); emit('chain',ids); renderChain(); renderPicker(); }
+
+function renderChain(){
+  const root=$('#chain');
+  root.innerHTML='';
+  const ids=chainIds();
+
+  ids.forEach(id=>{
+    const m=moduleMap[id];
+    const el=document.createElement('div');
+    el.className='chain-item'+(selectedId===id?' active':'')+(m.toggle&&p(m.toggle).norm>=.5?' enabled':'');
+    el.draggable=true;
+    el.dataset.id=id;
+
+    const power=document.createElement('button');
+    power.className='chain-power';
+    power.dataset.tip='Включить или выключить модуль, не удаляя его из цепочки.';
+    power.onclick=e=>{e.stopPropagation();setNorm(m.toggle,p(m.toggle).norm>=.5?0:1);syncModule();renderChain();};
+
+    const copy=document.createElement('div');
+    copy.className='chain-copy';
+    copy.innerHTML='<div class="chain-title">'+m.title+'</div><div class="chain-sub">'+m.sub+'</div>';
+
+    const remove=document.createElement('button');
+    remove.className='chain-remove';
+    remove.textContent='×';
+    remove.dataset.tip='Удалить модуль из цепочки. Настройки сохранятся и вернутся, если добавить модуль снова.';
+    remove.onclick=e=>{e.stopPropagation();removeFromChain(id);};
+
+    el.onclick=()=>selectModule(id);
+    el.ondragstart=e=>{dragChainId=id;el.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id);};
+    el.ondragend=()=>{dragChainId=null;$$('.chain-item').forEach(x=>x.classList.remove('dragging','drag-over'));};
+    el.ondragover=e=>{if(!dragChainId||dragChainId===id)return;e.preventDefault();el.classList.add('drag-over');};
+    el.ondragleave=()=>el.classList.remove('drag-over');
+    el.ondrop=e=>{
+      e.preventDefault();el.classList.remove('drag-over');
+      if(!dragChainId||dragChainId===id)return;
+      const order=chainIds();
+      const from=order.indexOf(dragChainId),to=order.indexOf(id);
+      if(from<0||to<0)return;
+      order.splice(from,1);
+      order.splice(to,0,dragChainId);
+      sendChain(order);
+    };
+
+    el.append(power,copy,remove);
+    root.appendChild(el);
+  });
+}
+
+function renderPicker(){
+  const picker=$('#modulePicker');
+  const current=new Set(chainIds());
+  picker.innerHTML='<div class="module-picker-title">ДОБАВИТЬ МОДУЛЬ</div>';
+  processingIds.filter(id=>!current.has(id)).forEach(id=>{
+    const m=moduleMap[id];
+    const b=document.createElement('button');
+    b.className='module-pick';
+    b.textContent=m.title+'  ·  '+m.sub;
+    b.onclick=e=>{e.stopPropagation();const order=chainIds();order.push(id);sendChain(order);selectModule(id);closePicker();};
+    picker.appendChild(b);
+  });
+  if(current.size===processingIds.length){
+    const empty=document.createElement('div');
+    empty.className='module-picker-title';
+    empty.textContent='ВСЕ МОДУЛИ УЖЕ В ЦЕПОЧКЕ';
+    picker.appendChild(empty);
+  }
+}
+function togglePicker(){const open=!$('#modulePicker').classList.contains('open');$('#modulePicker').classList.toggle('open',open);$('#addModuleBtn').classList.toggle('open',open);renderPicker();}
+function closePicker(){$('#modulePicker').classList.remove('open');$('#addModuleBtn').classList.remove('open');}
+function removeFromChain(id){
+  const order=chainIds().filter(x=>x!==id);
+  sendChain(order);
+  if(selectedId===id) selectModule(order[0]||'input');
+}
+function selectModule(id){
+  if(!moduleMap[id])return;
+  selectedId=id;
+  renderChain();
+  renderModule();
+  drawAnalyzer();
+  $('#chainScroll').querySelector('[data-id="'+id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
+}
+
+function makeHorizontal(spec){
+  const id=spec[0],label=spec[1],unit=spec[2];
+  const c=document.createElement('div');c.className='linear-control';c.dataset.paramId=id;
+  c.innerHTML='<div class="control-label">'+label+'</div><div class="h-fader"><div class="h-fader-track"><div class="h-fader-fill"></div><div class="h-fader-thumb"></div></div></div><div class="control-value"></div>';
+  const f=$('.h-fader',c),value=$('.control-value',c);
+  let drag=false;
+  const updateVisual=()=>{const n=clamp(p(id).norm,0,1);$('.h-fader-fill',c).style.width=(n*100)+'%';$('.h-fader-thumb',c).style.left=(n*100)+'%';value.textContent=format(unit,p(id).raw);};
+  const move=e=>{const r=f.getBoundingClientRect(),n=clamp((e.clientX-r.left)/r.width,0,1);setNorm(id,n);updateVisual();};
+  f.onpointerdown=e=>{e.preventDefault();drag=true;hold(id);f.setPointerCapture(e.pointerId);move(e);};
+  f.onpointermove=e=>{if(drag)move(e);};
+  const end=e=>{if(!drag)return;drag=false;try{f.releasePointerCapture(e.pointerId)}catch(_){}release(id);};
+  f.onpointerup=end;f.onpointercancel=end;
+  f.ondblclick=e=>{e.preventDefault();setNorm(id,p(id).def);updateVisual();};
+  c._sync=updateVisual;updateVisual();return c;
+}
+function makeVertical(spec){
+  const id=spec[0],label=spec[1],unit=spec[2];
+  const c=document.createElement('div');c.className='v-fader-control';c.dataset.paramId=id;
+  c.innerHTML='<div class="control-label">'+label+'</div><div class="v-fader"><div class="v-track"><div class="v-fill"></div><div class="v-thumb"></div></div></div><div class="control-value"></div>';
+  const f=$('.v-fader',c),value=$('.control-value',c);
+  let drag=false;
+  const updateVisual=()=>{const n=clamp(p(id).norm,0,1);$('.v-fill',c).style.height=(n*100)+'%';$('.v-thumb',c).style.bottom=(n*100)+'%';value.textContent=format(unit,p(id).raw);};
+  const move=e=>{const r=f.getBoundingClientRect(),n=clamp(1-(e.clientY-r.top)/r.height,0,1);setNorm(id,n);updateVisual();};
+  f.onpointerdown=e=>{e.preventDefault();drag=true;hold(id);f.setPointerCapture(e.pointerId);move(e);};
+  f.onpointermove=e=>{if(drag)move(e);};
+  const end=e=>{if(!drag)return;drag=false;try{f.releasePointerCapture(e.pointerId)}catch(_){}release(id);};
+  f.onpointerup=end;f.onpointercancel=end;
+  f.ondblclick=e=>{e.preventDefault();setNorm(id,p(id).def);updateVisual();};
+  c._sync=updateVisual;updateVisual();return c;
+}
+function makeToggle(spec){
+  const id=spec[0],label=spec[1];
+  const c=document.createElement('div');c.className='toggle-control';c.dataset.paramId=id;
+  c.innerHTML='<div class="control-label">'+label+'</div><div class="big-toggle"></div><div class="control-value"></div>';
+  const sync=()=>{const on=p(id).norm>=.5;$('.big-toggle',c).classList.toggle('on',on);$('.control-value',c).textContent=on?'ON':'OFF';};
+  $('.big-toggle',c).onclick=()=>{setNorm(id,p(id).norm>=.5?0:1);sync();};
+  c._sync=sync;sync();return c;
+}
+
+function renderEqPanel(root){
+  root.classList.add('eq-mode');
+  const wrap=document.createElement('div');wrap.className='eq-module-panel';
+  const list=document.createElement('div');list.className='eq-band-list';
+  eqBands.forEach((b,i)=>{
+    const item=document.createElement('div');item.className='eq-band';item.dataset.eqBand=i;
+    item.innerHTML='<div class="eq-band-top"><div class="eq-band-name">'+b.name+'</div><div class="eq-band-dot" style="background:'+b.color+'"></div></div><div class="eq-band-values"><div><span>FREQ</span><b class="eq-freq"></b></div><div><span>GAIN</span><b class="eq-gain"></b></div></div>';
+    item.onclick=()=>{selectedEqBand=i;syncEqPanel();drawAnalyzer();};
+    list.appendChild(item);
+  });
+  const info=document.createElement('div');info.className='eq-instructions';info.id='eqInstructions';
+  wrap.append(list,info);root.appendChild(wrap);syncEqPanel();
+}
+function syncEqPanel(){
+  $$('.eq-band').forEach((item,i)=>{
+    const b=eqBands[i],f=p(b.freq).raw,g=p(b.gain).raw;
+    item.classList.toggle('active',i===selectedEqBand);
+    $('.eq-freq',item).textContent=f>=1000?(f/1000).toFixed(2)+'k':Math.round(f)+' Hz';
+    $('.eq-gain',item).textContent=(g>=0?'+':'')+g.toFixed(1)+' dB';
+  });
+  const b=eqBands[selectedEqBand],info=$('#eqInstructions');
+  if(info) info.innerHTML='<h3>'+b.name+(b.q?' · Q '+p(b.q).raw.toFixed(2):' · SHELF')+'</h3><p>'+b.guide+' Тяните точку на верхнем графике. '+(b.q?'Колесо мыши меняет Q.':'Полка остаётся широкой и музыкальной.')+'</p><div class="keys"><span class="key">DRAG = FREQ + GAIN</span>'+(b.q?'<span class="key">WHEEL = Q</span>':'')+'<span class="key">DOUBLE CLICK = RESET</span></div>';
+}
+
+function freqNorm(freq,min=20,max=20000){return Math.log(freq/min)/Math.log(max/min);}
+function normFreq(n,min=20,max=20000){return min*Math.pow(max/min,clamp(n,0,1));}
+
+function makeBandFader(id,label,unit='percent',modeId=null){
+  const col=document.createElement('div');col.className='band-column';col.dataset.paramId=id;
+  col.innerHTML='<div class="band-name">'+label+'</div>';
+  const f=makeVertical([id,'',unit,'v']);
+  $('.control-label',f).remove();
+  col.appendChild(f);
+  if(modeId){
+    const sel=document.createElement('select');sel.className='mode-select';sel.dataset.paramId=modeId;
+    ['Warm','Tape','Tube','Triode','Retro','Dual','Clean'].forEach((name,i)=>{const o=document.createElement('option');o.value=i;o.textContent=name;sel.appendChild(o);});
+    sel.value=String(Math.round(p(modeId).raw||0));
+    sel.onchange=()=>{hold(modeId);setRaw(modeId,Number(sel.value));release(modeId);};
+    col.appendChild(sel);
+  }
+  return col;
+}
+
+function renderBandModule(root,type){
+  root.classList.add('band-mode');
+  const wrap=document.createElement('div');wrap.className='band-editor';
+  const top=document.createElement('div');top.className='band-topbar';
+  const work=document.createElement('div');work.className='band-work';
+
+  const mix=document.createElement('div');mix.className='band-mix';
+  let globalId=null,globalLabel='GLOBAL';
+  if(type==='exciter'){globalId='exciterMix';globalLabel='MIX';}
+  if(type==='multiband'){globalId='multiband';globalLabel='GLOBAL';}
+  if(type==='imager'){globalId='imagerSafety';globalLabel='SAFETY';}
+  mix.innerHTML='<div class="band-mix-label">'+globalLabel+'</div>';
+  const global=makeHorizontal([globalId,'','percent']);
+  $('.control-label',global).remove();$('.control-value',global).style.minWidth='58px';global.style.flex='1';
+  mix.appendChild(global);top.appendChild(mix);
+  wrap.append(top,work);root.appendChild(wrap);
+
+  let crossovers=[],bands=[];
+  if(type==='exciter'){
+    crossovers=[
+      {id:'exciterX1',min:60,max:1000},
+      {id:'exciterX2',min:300,max:6000},
+      {id:'exciterX3',min:1800,max:16000}
+    ];
+    bands=[
+      makeBandFader('exciterBand1','LOW','percent','exciterMode1'),
+      makeBandFader('exciterBand2','LOW MID','percent','exciterMode2'),
+      makeBandFader('exciterBand3','HIGH MID','percent','exciterMode3'),
+      makeBandFader('exciterBand4','HIGH','percent','exciterMode4')
+    ];
+  } else if(type==='multiband'){
+    crossovers=[
+      {id:'mbLowHz',min:70,max:500},
+      {id:'mbHighHz',min:1800,max:12000}
+    ];
+    bands=[
+      makeBandFader('mbLowAmount','LOW'),
+      makeBandFader('mbMidAmount','MID'),
+      makeBandFader('mbHighAmount','HIGH')
+    ];
+    work.style.gridTemplateColumns='repeat(3,1fr)';
+  } else {
+    crossovers=[
+      {id:'imagerLowHz',min:80,max:500},
+      {id:'imagerHighHz',min:1800,max:12000}
+    ];
+    bands=[
+      makeBandFader('widthLow','LOW','width'),
+      makeBandFader('widthMid','MID','width'),
+      makeBandFader('widthHigh','HIGH','width')
+    ];
+    work.style.gridTemplateColumns='repeat(3,1fr)';
+  }
+  bands.forEach(b=>work.appendChild(b));
+
+  const syncCross=()=>{
+    $$('.crossover-line',work).forEach((line,i)=>{
+      const c=crossovers[i];
+      const n=freqNorm(p(c.id).raw,20,20000);
+      line.style.left=(n*100)+'%';
+      const tag=line.previousElementSibling;
+      tag.style.left=(n*100)+'%';
+      tag.textContent=format('hz',p(c.id).raw);
+    });
+  };
+
+  crossovers.forEach((c,i)=>{
+    const tag=document.createElement('div');tag.className='crossover-tag';
+    const line=document.createElement('div');line.className='crossover-line';line.dataset.paramId=c.id;
+    work.append(tag,line);
+    let drag=false;
+    const move=e=>{
+      const r=work.getBoundingClientRect();
+      let f=normFreq(clamp((e.clientX-r.left)/r.width,0,1),20,20000);
+      f=clamp(f,c.min,c.max);
+      if(type==='exciter'){
+        if(i===0) f=Math.min(f,p('exciterX2').raw-100);
+        if(i===1){f=Math.max(f,p('exciterX1').raw+100);f=Math.min(f,p('exciterX3').raw-250);}
+        if(i===2) f=Math.max(f,p('exciterX2').raw+250);
+      }else{
+        if(i===0) f=Math.min(f,p(crossovers[1].id).raw-250);
+        if(i===1) f=Math.max(f,p(crossovers[0].id).raw+250);
+      }
+      setRaw(c.id,f);syncCross();
+    };
+    line.onpointerdown=e=>{e.preventDefault();drag=true;hold(c.id);line.setPointerCapture(e.pointerId);move(e);};
+    line.onpointermove=e=>{if(drag)move(e);};
+    const end=e=>{if(!drag)return;drag=false;try{line.releasePointerCapture(e.pointerId)}catch(_){}release(c.id);};
+    line.onpointerup=end;line.onpointercancel=end;
+  });
+  wrap._sync=()=>{syncCross();$$('.band-column [data-param-id]').forEach(el=>el._sync&&el._sync());};
+  syncCross();
+}
+
+function renderModule(){
+  const m=moduleMap[selectedId]||moduleMap.input;
+  $('#moduleTitle').textContent=m.title;$('#moduleKicker').textContent=m.sub.toUpperCase();$('#moduleFooter').textContent=m.footer;
+  const power=$('#modulePower');
+  if(m.toggle){power.style.display='';power.dataset.paramId=m.toggle;power.onclick=()=>{setNorm(m.toggle,p(m.toggle).norm>=.5?0:1);syncModule();renderChain();};}
+  else{power.style.display='none';power.onclick=null;delete power.dataset.paramId;}
+  $('#helpBtn').onclick=()=>openHelp(m);
+  const removable=!m.fixed&&chainIds().includes(m.id);
+  $('#removeModuleBtn').style.display=removable?'':'none';
+  $('#removeModuleBtn').onclick=()=>removeFromChain(m.id);
+
+  const root=$('#moduleControls');root.className='controls-grid';root.innerHTML='';
+  if(m.special==='eq') renderEqPanel(root);
+  else if(['exciter','multiband','imager'].includes(m.special||m.id)) renderBandModule(root,m.special||m.id);
+  else (m.controls||[]).forEach(spec=>{
+    if(spec[2]==='toggle') root.appendChild(makeToggle(spec));
+    else if(spec[3]==='v') root.appendChild(makeVertical(spec));
+    else root.appendChild(makeHorizontal(spec));
+  });
+  syncModule();
+}
+function syncModule(){
+  const m=moduleMap[selectedId]||moduleMap.input;
+  if(m.toggle) $('#modulePower').classList.toggle('on',p(m.toggle).norm>=.5);
+  $$('#moduleControls [data-param-id]').forEach(el=>{if(el._sync)el._sync();});
+  $$('#moduleControls .linear-control, #moduleControls .v-fader-control, #moduleControls .toggle-control').forEach(el=>{if(el._sync)el._sync();});
+  if(m.special==='eq')syncEqPanel();
+  const band=$('#moduleControls .band-editor');if(band&&band._sync)band._sync();
+}
+
+function openHelp(m){$('#modalTitle').textContent=m.title;$('#modalText').textContent=m.help;$('#modal').classList.add('open');}
+function closeHelp(){$('#modal').classList.remove('open');}
 
 function updateBypass(){$('#bypassBtn').classList.toggle('on',p('masterBypass').norm>=.5);}
-function dbMeter(db){return Number.isFinite(db)?clamp((db+60)/60,0,1):0;}
-function dbText(db,suffix){return Number.isFinite(db)&&db>-99?db.toFixed(1)+(suffix||''):'-∞';}
+function meterNorm(db){return Number.isFinite(db)?clamp((db+60)/60,0,1):0;}
+function dbText(db,suffix=''){return Number.isFinite(db)&&db>-99?db.toFixed(1)+suffix:'-∞';}
 function updateMeters(){
- const m=state.meters||{},ip=Number(m.inputPeak??-100),op=Number(m.outputPeak??-100);
- $('#inMeter').style.height=(dbMeter(ip)*100)+'%';
- $('#outMeter').style.height=(dbMeter(op)*100)+'%';
- $('#inPeak').textContent=dbText(ip,' dBFS');
- $('#outPeak').textContent=dbText(op,' dBFS');
- $('#lufs').textContent=dbText(Number(m.lufs??-100),'');
- $('#crest').textContent=Number(m.crest??0).toFixed(1)+' dB';
- $('#corr').textContent=Number(m.correlation??0).toFixed(2);
- $('#gr').textContent=Number(m.limiterGR??0).toFixed(1)+' dB';
- $('#inputGain').textContent=Number(m.inputGain??0).toFixed(1)+' dB';
-
- const corr=Number(m.correlation??0),grv=Number(m.limiterGR??0),badge=$('#qualityBadge');
- if(corr<-.05){badge.textContent='PHASE';badge.style.color='var(--red)';}
- else if(grv>7){badge.textContent='HARD';badge.style.color='var(--amber)';}
- else{badge.textContent='CLEAN';badge.style.color='var(--green)';}
-
- const rms=Number(m.inputRms??-100),coach=$('#coach');
- coach.classList.remove('warn','hot');
- if(rms<-60)$('#coachText').textContent='Ожидаю аудиосигнал…';
- else if(rms<-24){coach.classList.add('warn');$('#coachText').textContent='Вход тихий. Поднимайте уровень умеренно: хороший старт — средний уровень около -18…-16 dBFS.';}
- else if(rms>-10){coach.classList.add('hot');$('#coachText').textContent='Вход слишком горячий. Снизьте INPUT TRIM: так компрессор и клиппер будут работать чище.';}
- else $('#coachText').textContent='Вход в рабочей зоне. Теперь настраивайте тон, динамику и финальную громкость по очереди.';
+  const m=state.meters||{},ip=Number(m.inputPeak??-100),op=Number(m.outputPeak??-100);
+  $('#inMeter').style.height=(meterNorm(ip)*100)+'%';$('#outMeter').style.height=(meterNorm(op)*100)+'%';
+  $('#inPeak').textContent=dbText(ip,' dBFS');$('#outPeak').textContent=dbText(op,' dBFS');
+  $('#lufs').textContent=dbText(Number(m.lufs??-100));$('#crest').textContent=Number(m.crest??0).toFixed(1)+' dB';
+  $('#corr').textContent=Number(m.correlation??0).toFixed(2);$('#gr').textContent=Number(m.limiterGR??0).toFixed(1)+' dB';$('#inputGain').textContent=Number(m.inputGain??0).toFixed(1)+' dB';
+  const badge=$('#qualityBadge'),corr=Number(m.correlation??0),gr=Number(m.limiterGR??0);
+  if(corr<-.05){badge.textContent='PHASE';badge.style.color='var(--red)';}
+  else if(gr>7){badge.textContent='HARD';badge.style.color='var(--amber)';}
+  else{badge.textContent='CLEAN';badge.style.color='var(--green)';}
+  const rms=Number(m.inputRms??-100),coach=$('#coach');coach.classList.remove('warn','hot');
+  if(rms<-60)$('#coachText').textContent='Ожидаю аудиосигнал…';
+  else if(rms<-24){coach.classList.add('warn');$('#coachText').textContent='Вход тихий. Хороший старт — средний уровень примерно -18…-16 dBFS.';}
+  else if(rms>-10){coach.classList.add('hot');$('#coachText').textContent='Вход слишком горячий. Снизьте INPUT TRIM, чтобы сохранить транзиенты и headroom.';}
+  else $('#coachText').textContent='Вход в рабочей зоне. Настраивайте тон, динамику и финальную громкость по очереди.';
 }
 
 const canvas=$('#eqCanvas'),ctx=canvas.getContext('2d');
 function resizeCanvas(){
- const r=canvas.getBoundingClientRect(),d=Math.max(1,window.devicePixelRatio||1);
- const w=Math.max(10,Math.round(r.width*d)),h=Math.max(10,Math.round(r.height*d));
- if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
- ctx.setTransform(d,0,0,d,0,0);draw();
+  const r=canvas.getBoundingClientRect(),d=Math.max(1,window.devicePixelRatio||1);
+  const w=Math.max(10,Math.round(r.width*d)),h=Math.max(10,Math.round(r.height*d));
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+  ctx.setTransform(d,0,0,d,0,0);drawAnalyzer();
 }
 function graphRect(){const r=canvas.getBoundingClientRect();return{x:18,y:14,w:Math.max(10,r.width-36),h:Math.max(10,r.height-35)};}
-function fNorm(f){return Math.log(clamp(f,20,20000)/20)/Math.log(1000);}
-function nFreq(n){return 20*Math.pow(1000,clamp(n,0,1));}
-function fx(f,g){return g.x+fNorm(f)*g.w;}
+function fx(f,g){return g.x+freqNorm(f,20,20000)*g.w;}
 function gy(v,g){return g.y+g.h*(.5-clamp(v,-12,12)/24);}
 function sy(db,g){return g.y+g.h*(1-clamp((db+84)/84,0,1));}
 function bell(f,c,q){const w=1.45-clamp((q-.25)/3.75,0,1)*1.2,x=Math.log2(f/Math.max(20,c))/w;return Math.exp(-.5*x*x);}
 function eqAt(f){
- let v=(p('lowShelf').raw||0)/(1+Math.pow(f/Math.max(30,p('lowShelfHz').raw||105),3));
- v+=(p('lowMid').raw||0)*bell(f,p('lowMidHz').raw||320,p('lowMidQ').raw||.85);
- v+=(p('midGain').raw||0)*bell(f,p('midHz').raw||900,p('midQ').raw||.9);
- v+=(p('presence').raw||0)*bell(f,p('presenceHz').raw||3200,p('presenceQ').raw||.9);
- v+=(p('highMidGain').raw||0)*bell(f,p('highMidHz').raw||6200,p('highMidQ').raw||.9);
- v+=(p('air').raw||0)/(1+Math.pow(Math.max(3000,p('airHz').raw||10500)/Math.max(20,f),4));
- return v;
+  let v=(p('lowShelf').raw||0)/(1+Math.pow(f/Math.max(30,p('lowShelfHz').raw||105),3));
+  v+=(p('lowMid').raw||0)*bell(f,p('lowMidHz').raw||320,p('lowMidQ').raw||.85);
+  v+=(p('midGain').raw||0)*bell(f,p('midHz').raw||900,p('midQ').raw||.9);
+  v+=(p('presence').raw||0)*bell(f,p('presenceHz').raw||3200,p('presenceQ').raw||.9);
+  v+=(p('highMidGain').raw||0)*bell(f,p('highMidHz').raw||6200,p('highMidQ').raw||.9);
+  v+=(p('air').raw||0)/(1+Math.pow(Math.max(3000,p('airHz').raw||10500)/Math.max(20,f),4));
+  return v;
 }
-function spectrum(a,g,color,width,fill){
- if(!a||!a.length)return;
- ctx.beginPath();
- a.forEach((db,i)=>{const x=g.x+i/(a.length-1)*g.w,y=sy(db,g);if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
- if(fill){
-   ctx.lineTo(g.x+g.w,g.y+g.h);ctx.lineTo(g.x,g.y+g.h);ctx.closePath();
-   const z=ctx.createLinearGradient(0,g.y,0,g.y+g.h);z.addColorStop(0,'rgba(52,216,255,.14)');z.addColorStop(1,'rgba(52,216,255,0)');
-   ctx.fillStyle=z;ctx.fill();
-   ctx.beginPath();a.forEach((db,i)=>{const x=g.x+i/(a.length-1)*g.w,y=sy(db,g);if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
- }
- ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();
+function drawSpectrum(a,g,color,width,fill){
+  if(!a||!a.length)return;ctx.beginPath();
+  a.forEach((db,i)=>{const x=g.x+i/(a.length-1)*g.w,y=sy(db,g);if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
+  if(fill){ctx.lineTo(g.x+g.w,g.y+g.h);ctx.lineTo(g.x,g.y+g.h);ctx.closePath();const z=ctx.createLinearGradient(0,g.y,0,g.y+g.h);z.addColorStop(0,'rgba(53,216,255,.14)');z.addColorStop(1,'rgba(53,216,255,0)');ctx.fillStyle=z;ctx.fill();ctx.beginPath();a.forEach((db,i)=>{const x=g.x+i/(a.length-1)*g.w,y=sy(db,g);if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);});}
+  ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();
 }
-function draw(){
- const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;
- const g=graphRect();ctx.clearRect(0,0,r.width,r.height);
-
- const bg=ctx.createLinearGradient(0,g.y,0,g.y+g.h);
- bg.addColorStop(0,'rgba(20,33,45,.50)');bg.addColorStop(.55,'rgba(10,17,24,.22)');bg.addColorStop(1,'rgba(4,8,12,.08)');
- ctx.fillStyle=bg;ctx.fillRect(g.x,g.y,g.w,g.h);
-
- ctx.font='8px Segoe UI';ctx.textBaseline='bottom';
- [20,50,100,200,500,1000,2000,5000,10000,20000].forEach(f=>{
-   const x=fx(f,g);ctx.strokeStyle='rgba(69,95,117,.24)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,g.y);ctx.lineTo(x,g.y+g.h);ctx.stroke();
-   ctx.fillStyle='rgba(100,122,142,.62)';ctx.textAlign=f===20?'left':f===20000?'right':'center';ctx.fillText(f>=1000?(f/1000)+'k':String(f),x,g.y+g.h-3);
- });
- [-12,-6,0,6,12].forEach(db=>{const y=gy(db,g);ctx.strokeStyle=db===0?'rgba(108,139,162,.34)':'rgba(69,95,117,.17)';ctx.beginPath();ctx.moveTo(g.x,y);ctx.lineTo(g.x+g.w,y);ctx.stroke();});
-
- spectrum(state.pre,g,'rgba(119,139,158,.38)',1,false);
- spectrum(state.post,g,'rgba(52,216,255,.90)',1.6,true);
-
- ctx.beginPath();
- const n=Math.max(240,Math.floor(g.w));
- for(let i=0;i<n;i++){const u=i/(n-1),x=g.x+u*g.w,y=gy(eqAt(nFreq(u)),g);if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
- const grad=ctx.createLinearGradient(g.x,0,g.x+g.w,0);grad.addColorStop(0,'#34d8ff');grad.addColorStop(.5,'#9b8cff');grad.addColorStop(1,'#86eaff');
- ctx.strokeStyle=grad;ctx.lineWidth=2.2;ctx.stroke();
-
- if(modules[selectedModule].id==='eq'){
-   eqBands.forEach((b,i)=>{
-     const x=fx(p(b.freq).raw,g),y=gy(p(b.gain).raw,g),active=i===selectedEqBand,hover=i===eqHover;
-     ctx.beginPath();ctx.arc(x,y,active?8:6,0,Math.PI*2);ctx.fillStyle=active?b.color:'#081018';ctx.fill();
-     ctx.strokeStyle=b.color;ctx.lineWidth=active||hover?2.2:1.5;ctx.stroke();
-     if(active){ctx.beginPath();ctx.arc(x,y,14,0,Math.PI*2);ctx.strokeStyle=b.color+'55';ctx.lineWidth=1;ctx.stroke();}
-   });
- }
- renderEqInspector();
+function drawAnalyzer(){
+  const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;const g=graphRect();ctx.clearRect(0,0,r.width,r.height);
+  const bg=ctx.createLinearGradient(0,g.y,0,g.y+g.h);bg.addColorStop(0,'rgba(20,33,45,.5)');bg.addColorStop(1,'rgba(4,8,12,.08)');ctx.fillStyle=bg;ctx.fillRect(g.x,g.y,g.w,g.h);
+  ctx.font='8px Segoe UI';ctx.textBaseline='bottom';
+  [20,50,100,200,500,1000,2000,5000,10000,20000].forEach(f=>{const x=fx(f,g);ctx.strokeStyle='rgba(69,95,117,.24)';ctx.beginPath();ctx.moveTo(x,g.y);ctx.lineTo(x,g.y+g.h);ctx.stroke();ctx.fillStyle='rgba(100,122,142,.62)';ctx.textAlign=f===20?'left':f===20000?'right':'center';ctx.fillText(f>=1000?(f/1000)+'k':String(f),x,g.y+g.h-3);});
+  [-12,-6,0,6,12].forEach(db=>{const y=gy(db,g);ctx.strokeStyle=db===0?'rgba(108,139,162,.34)':'rgba(69,95,117,.17)';ctx.beginPath();ctx.moveTo(g.x,y);ctx.lineTo(g.x+g.w,y);ctx.stroke();});
+  drawSpectrum(state.pre,g,'rgba(119,139,158,.36)',1,false);drawSpectrum(state.post,g,'rgba(53,216,255,.9)',1.6,true);
+  ctx.beginPath();const n=Math.max(240,Math.floor(g.w));for(let i=0;i<n;i++){const u=i/(n-1),f=normFreq(u,20,20000),x=g.x+u*g.w,y=gy(eqAt(f),g);if(!i)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+  const grad=ctx.createLinearGradient(g.x,0,g.x+g.w,0);grad.addColorStop(0,'#35d8ff');grad.addColorStop(.5,'#9c8cff');grad.addColorStop(1,'#86eaff');ctx.strokeStyle=grad;ctx.lineWidth=2.2;ctx.stroke();
+  if(selectedId==='eq')eqBands.forEach((b,i)=>{const x=fx(p(b.freq).raw,g),y=gy(p(b.gain).raw,g),active=i===selectedEqBand,hover=i===eqHover;ctx.beginPath();ctx.arc(x,y,active?8:6,0,Math.PI*2);ctx.fillStyle=active?b.color:'#081018';ctx.fill();ctx.strokeStyle=b.color;ctx.lineWidth=active||hover?2.2:1.5;ctx.stroke();if(active){ctx.beginPath();ctx.arc(x,y,14,0,Math.PI*2);ctx.strokeStyle=b.color+'55';ctx.stroke();}});
+  renderEqInspector();
 }
 function renderEqInspector(){
- const b=eqBands[selectedEqBand],root=$('#eqInspector'),f=p(b.freq).raw,g=p(b.gain).raw,q=b.q?p(b.q).raw:null;
- root.innerHTML='<div class="eq-chip"><span>BAND</span><b>'+b.name+'</b></div>'+
-   '<div class="eq-chip"><span>FREQ</span><b>'+(f>=1000?(f/1000).toFixed(2)+' kHz':Math.round(f)+' Hz')+'</b></div>'+
-   '<div class="eq-chip"><span>GAIN</span><b>'+(g>=0?'+':'')+g.toFixed(1)+' dB</b></div>'+
-   (q!==null?'<div class="eq-chip"><span>Q</span><b>'+q.toFixed(2)+'</b></div>':'');
+  const b=eqBands[selectedEqBand],f=p(b.freq).raw,g=p(b.gain).raw,q=b.q?p(b.q).raw:null,root=$('#eqInspector');
+  root.innerHTML='<div class="eq-chip"><span>BAND</span><b>'+b.name+'</b></div><div class="eq-chip"><span>FREQ</span><b>'+format('hz',f)+'</b></div><div class="eq-chip"><span>GAIN</span><b>'+(g>=0?'+':'')+g.toFixed(1)+' dB</b></div>'+(q!==null?'<div class="eq-chip"><span>Q</span><b>'+q.toFixed(2)+'</b></div>':'');
 }
 function hitEq(cx,cy){
- if(modules[selectedModule].id!=='eq')return-1;
- const rect=canvas.getBoundingClientRect(),g=graphRect(),x=cx-rect.left,y=cy-rect.top;
- let best=-1,dist=1e9;
- eqBands.forEach((b,i)=>{const d=Math.hypot(x-fx(p(b.freq).raw,g),y-gy(p(b.gain).raw,g));if(d<dist){dist=d;best=i;}});
- return dist<=20?best:-1;
+  if(selectedId!=='eq')return-1;const rect=canvas.getBoundingClientRect(),g=graphRect(),x=cx-rect.left,y=cy-rect.top;let best=-1,dist=1e9;
+  eqBands.forEach((b,i)=>{const d=Math.hypot(x-fx(p(b.freq).raw,g),y-gy(p(b.gain).raw,g));if(d<dist){dist=d;best=i;}});
+  return dist<=21?best:-1;
 }
-
 canvas.onpointerdown=e=>{
- const i=hitEq(e.clientX,e.clientY);if(i<0)return;e.preventDefault();
- selectedEqBand=i;const b=eqBands[i];eqDrag={band:i,id:e.pointerId};canvas.setPointerCapture(e.pointerId);
- gesture(b.freq,'begin');gesture(b.gain,'begin');syncEqPanel();draw();
+  const i=hitEq(e.clientX,e.clientY);if(i<0)return;e.preventDefault();
+  selectedEqBand=i;const b=eqBands[i];eqDrag={band:i,id:e.pointerId};
+  hold(b.freq);hold(b.gain);canvas.setPointerCapture(e.pointerId);syncEqPanel();drawAnalyzer();
 };
 canvas.onpointermove=e=>{
- const i=hitEq(e.clientX,e.clientY);eqHover=i;
- if(eqDrag){
-   const rect=canvas.getBoundingClientRect(),g=graphRect(),x=clamp(e.clientX-rect.left,g.x,g.x+g.w),y=clamp(e.clientY-rect.top,g.y,g.y+g.h),b=eqBands[eqDrag.band];
-   setRaw(b.freq,nFreq((x-g.x)/g.w));setRaw(b.gain,clamp((.5-(y-g.y)/g.h)*24,-12,12));return;
- }
- if(i>=0)showEqTip(i,e.clientX,e.clientY);else hideTip();
- draw();
+  const i=hitEq(e.clientX,e.clientY);eqHover=i;
+  if(eqDrag){
+    const rect=canvas.getBoundingClientRect(),g=graphRect(),x=clamp(e.clientX-rect.left,g.x,g.x+g.w),y=clamp(e.clientY-rect.top,g.y,g.y+g.h),b=eqBands[eqDrag.band];
+    const freq=normFreq((x-g.x)/g.w,20,20000),gain=clamp((.5-(y-g.y)/g.h)*24,-12,12);
+    setRaw(b.freq,freq);setRaw(b.gain,gain);syncEqPanel();drawAnalyzer();return;
+  }
+  if(i>=0)showEqTip(i,e.clientX,e.clientY);else hideTip();drawAnalyzer();
 };
 function endEq(){
- if(!eqDrag)return;const b=eqBands[eqDrag.band];gesture(b.freq,'end');gesture(b.gain,'end');eqDrag=null;
+  if(!eqDrag)return;const b=eqBands[eqDrag.band];release(b.freq);release(b.gain);eqDrag=null;
 }
 canvas.onpointerup=endEq;canvas.onpointercancel=endEq;
 canvas.addEventListener('wheel',e=>{
- const i=hitEq(e.clientX,e.clientY);if(i<0)return;const b=eqBands[i];if(!b.q)return;
- e.preventDefault();selectedEqBand=i;setRaw(b.q,clamp((p(b.q).raw||.9)*(e.deltaY<0?1.10:.91),.25,4));syncEqPanel();draw();
+  const i=hitEq(e.clientX,e.clientY);if(i<0)return;const b=eqBands[i];if(!b.q)return;e.preventDefault();selectedEqBand=i;hold(b.q);setRaw(b.q,clamp((p(b.q).raw||.9)*(e.deltaY<0?1.09:.92),.25,4));release(b.q);syncEqPanel();drawAnalyzer();
 },{passive:false});
 canvas.ondblclick=e=>{
- const i=hitEq(e.clientX,e.clientY);if(i<0)return;const b=eqBands[i];
- setRaw(b.freq,p(b.freq).defRaw);setRaw(b.gain,p(b.gain).defRaw);if(b.q)setRaw(b.q,p(b.q).defRaw);
- selectedEqBand=i;syncEqPanel();draw();
+  const i=hitEq(e.clientX,e.clientY);if(i<0)return;const b=eqBands[i];e.preventDefault();
+  hold(b.freq);hold(b.gain);setRaw(b.freq,p(b.freq).defRaw);setRaw(b.gain,p(b.gain).defRaw);release(b.freq);release(b.gain);
+  if(b.q){hold(b.q);setRaw(b.q,p(b.q).defRaw);release(b.q);}selectedEqBand=i;syncEqPanel();drawAnalyzer();
 };
 
 document.addEventListener('pointermove',e=>{
- if(e.target===canvas)return;
- const paramEl=e.target.closest&&e.target.closest('[data-param-id]');
- if(paramEl&&paramEl.dataset.paramId){showParamTip(paramEl.dataset.paramId,e.clientX,e.clientY);return;}
- const eqEl=e.target.closest&&e.target.closest('[data-eq-band]');
- if(eqEl){showEqTip(Number(eqEl.dataset.eqBand),e.clientX,e.clientY);return;}
- const tipEl=e.target.closest&&e.target.closest('[data-tip]');
- if(tipEl&&tipEl.dataset.tip){showGenericTip(tipEl.dataset.tip,e.clientX,e.clientY);return;}
- hideTip();
+  if(e.target===canvas)return;
+  const pe=e.target.closest&&e.target.closest('[data-param-id]');if(pe&&pe.dataset.paramId){showTipForParam(pe.dataset.paramId,e.clientX,e.clientY);return;}
+  const qe=e.target.closest&&e.target.closest('[data-eq-band]');if(qe){showEqTip(Number(qe.dataset.eqBand),e.clientX,e.clientY);return;}
+  const te=e.target.closest&&e.target.closest('[data-tip]');if(te&&te.dataset.tip){showGenericTip(te.dataset.tip,e.clientX,e.clientY);return;}
+  hideTip();
 });
 document.addEventListener('pointerleave',hideTip);
-document.addEventListener('click',e=>{if(!e.target.closest('#presetControl'))closePresetMenu();});
+document.addEventListener('click',e=>{if(!e.target.closest('#presetControl'))closePreset();if(!e.target.closest('.chain-actions'))closePicker();});
 
-$('#presetButton').onclick=e=>{e.stopPropagation();togglePresetMenu();};
-$('#bypassBtn').onclick=()=>setNorm('masterBypass',p('masterBypass').norm>=.5?0:1);
-$('#modalClose').onclick=closeHelp;
-$('.modal-backdrop').onclick=closeHelp;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeHelp();closePresetMenu();}});
+$('#presetButton').onclick=e=>{e.stopPropagation();togglePreset();};
+$('#addModuleBtn').onclick=e=>{e.stopPropagation();togglePicker();};
+$('#bypassBtn').onclick=()=>{setNorm('masterBypass',p('masterBypass').norm>=.5?0:1);updateBypass();};
+$('.input-card').onclick=()=>selectModule('input');
+$('.output-card').onclick=()=>selectModule('output');
+$('#modalClose').onclick=closeHelp;$('.modal-backdrop').onclick=closeHelp;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeHelp();closePreset();closePicker();}});
 
-function applyState(s){
- if(!s)return;
- state=s;
- buildPresetMenu();
- syncPreset();
- updateBypass();
- updateMeters();
- if(!uiBuilt){
-   buildChain();
-   renderModule();
-   uiBuilt=true;
- }else{
-   syncChain();
-   syncModule();
- }
- draw();
+function applyState(next){
+  mergeRemote(next);
+  buildPresets();updateBypass();updateMeters();
+  if(!uiBuilt){renderChain();renderPicker();renderModule();uiBuilt=true;}
+  else{
+    if(!chainIds().includes(selectedId)&&!moduleMap[selectedId]?.fixed) selectedId=chainIds()[0]||'input';
+    renderChain();renderPicker();syncModule();
+  }
+  drawAnalyzer();
 }
 
 if(backend){
- backend.addEventListener('state',applyState);
- emit('uiReady',{ready:true});
+  backend.addEventListener('state',applyState);
+  emit('uiReady',{ready:true});
 }else{
- const ids=new Set(['masterBypass']);
- modules.forEach(m=>{if(m.toggle)ids.add(m.toggle);m.params.forEach(x=>ids.add(x.id));});
- eqBands.forEach(b=>{ids.add(b.freq);ids.add(b.gain);if(b.q)ids.add(b.q);});
- ids.forEach(id=>state.params[id]={norm:.5,raw:0,def:.5,defRaw:0});
- Object.assign(state.params,{
-   lowShelfHz:{norm:.38,raw:105,def:.38,defRaw:105},lowShelf:{norm:.5,raw:0,def:.5,defRaw:0},
-   lowMidHz:{norm:.4,raw:320,def:.4,defRaw:320},lowMid:{norm:.5,raw:-.6,def:.5,defRaw:-.6},lowMidQ:{norm:.2,raw:.85,def:.2,defRaw:.85},
-   midHz:{norm:.48,raw:900,def:.48,defRaw:900},midGain:{norm:.5,raw:0,def:.5,defRaw:0},midQ:{norm:.2,raw:.9,def:.2,defRaw:.9},
-   presenceHz:{norm:.62,raw:3200,def:.62,defRaw:3200},presence:{norm:.55,raw:.7,def:.55,defRaw:.7},presenceQ:{norm:.2,raw:.9,def:.2,defRaw:.9},
-   highMidHz:{norm:.7,raw:6200,def:.7,defRaw:6200},highMidGain:{norm:.5,raw:0,def:.5,defRaw:0},highMidQ:{norm:.2,raw:.9,def:.2,defRaw:.9},
-   airHz:{norm:.78,raw:10500,def:.78,defRaw:10500},air:{norm:.55,raw:.8,def:.55,defRaw:.8},
-   smartGain:{norm:1,raw:1,def:1,defRaw:1},cleanEqOn:{norm:1,raw:1,def:1,defRaw:1}
- });
- state.presets=['Boom Bap - DENSE PUNCH','Boom Bap - DUSTY ANALOG','Hip-Hop - MODERN DENSE','INIT - EMPTY / ALL OFF'];
- state.meters={inputPeak:-12.4,outputPeak:-.8,inputRms:-18.2,lufs:-9.4,crest:8.7,correlation:.72,limiterGR:2.8,inputGain:1.4};
- state.pre=Array.from({length:64},(_,i)=>-42+9*Math.sin(i*.13)-i*.16);
- state.post=Array.from({length:64},(_,i)=>-35+7*Math.sin(i*.12)-i*.13);
- applyState(state);
+  const allIds=new Set(['masterBypass']);
+  modules.forEach(m=>{if(m.toggle)allIds.add(m.toggle);(m.controls||[]).forEach(s=>allIds.add(s[0]));});
+  eqBands.forEach(b=>{allIds.add(b.freq);allIds.add(b.gain);if(b.q)allIds.add(b.q);});
+  ['exciterMix','exciterX1','exciterX2','exciterX3','exciterBand1','exciterBand2','exciterBand3','exciterBand4','exciterMode1','exciterMode2','exciterMode3','exciterMode4','mbLowHz','mbHighHz','imagerLowHz','imagerHighHz','imagerSafety','widthLow','widthMid','widthHigh'].forEach(x=>allIds.add(x));
+  allIds.forEach(id=>state.params[id]={norm:.5,raw:0,def:.5,defRaw:0});
+  Object.assign(state.params,{
+    cleanEqOn:{norm:1,raw:1,def:1,defRaw:1},smartGain:{norm:1,raw:1,def:1,defRaw:1},
+    lowShelfHz:{norm:.25,raw:105,def:.25,defRaw:105},lowShelf:{norm:.5,raw:0,def:.5,defRaw:0},
+    lowMidHz:{norm:.35,raw:320,def:.35,defRaw:320},lowMid:{norm:.46,raw:-.6,def:.46,defRaw:-.6},lowMidQ:{norm:.2,raw:.85,def:.2,defRaw:.85},
+    midHz:{norm:.48,raw:900,def:.48,defRaw:900},midGain:{norm:.5,raw:0,def:.5,defRaw:0},midQ:{norm:.2,raw:.9,def:.2,defRaw:.9},
+    presenceHz:{norm:.62,raw:3200,def:.62,defRaw:3200},presence:{norm:.55,raw:.7,def:.55,defRaw:.7},presenceQ:{norm:.2,raw:.9,def:.2,defRaw:.9},
+    highMidHz:{norm:.72,raw:6200,def:.72,defRaw:6200},highMidGain:{norm:.5,raw:0,def:.5,defRaw:0},highMidQ:{norm:.2,raw:.9,def:.2,defRaw:.9},
+    airHz:{norm:.84,raw:10500,def:.84,defRaw:10500},air:{norm:.55,raw:.8,def:.55,defRaw:.8},
+    exciterX1:{norm:.3,raw:180,def:.3,defRaw:180},exciterX2:{norm:.5,raw:1800,def:.5,defRaw:1800},exciterX3:{norm:.75,raw:6500,def:.75,defRaw:6500},
+    exciterBand1:{norm:.05,raw:.05,def:.05,defRaw:.05},exciterBand2:{norm:.08,raw:.08,def:.08,defRaw:.08},exciterBand3:{norm:.12,raw:.12,def:.12,defRaw:.12},exciterBand4:{norm:.14,raw:.14,def:.14,defRaw:.14},
+    exciterMode1:{norm:0,raw:0,def:0,defRaw:0},exciterMode2:{norm:.16,raw:1,def:.16,defRaw:1},exciterMode3:{norm:.33,raw:2,def:.33,defRaw:2},exciterMode4:{norm:.5,raw:3,def:.5,defRaw:3},
+    mbLowHz:{norm:.3,raw:150,def:.3,defRaw:150},mbHighHz:{norm:.72,raw:4500,def:.72,defRaw:4500},
+    imagerLowHz:{norm:.3,raw:180,def:.3,defRaw:180},imagerHighHz:{norm:.72,raw:5000,def:.72,defRaw:5000},
+    widthLow:{norm:.61,raw:.92,def:.61,defRaw:.92},widthMid:{norm:.57,raw:1.02,def:.57,defRaw:1.02},widthHigh:{norm:.54,raw:1.08,def:.54,defRaw:1.08},imagerSafety:{norm:.8,raw:.8,def:.8,defRaw:.8}
+  });
+  state.presets=['Boom Bap - DENSE PUNCH','Boom Bap - DUSTY ANALOG','Hip-Hop - MODERN DENSE','INIT - EMPTY / ALL OFF'];
+  state.meters={inputPeak:-12.4,outputPeak:-.8,inputRms:-18.2,lufs:-9.4,crest:8.7,correlation:.72,limiterGR:2.8,inputGain:1.4};
+  state.pre=Array.from({length:64},(_,i)=>-42+8*Math.sin(i*.13)-i*.15);
+  state.post=Array.from({length:64},(_,i)=>-35+6*Math.sin(i*.12)-i*.13);
+  applyState(state);
 }
 
 if(window.ResizeObserver)new ResizeObserver(resizeCanvas).observe(canvas);

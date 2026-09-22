@@ -4,6 +4,27 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <vector>
+
+
+enum class ForgeModule : int
+{
+    Equalizer = 0,
+    DynamicEq,
+    Stabilizer,
+    VintageComp,
+    Multiband,
+    Impact,
+    Saturation,
+    Exciter,
+    LowEndFocus,
+    Imager,
+    Clipper,
+    Maximizer,
+    Count
+};
+
+static constexpr int forgeModuleCount = static_cast<int> (ForgeModule::Count);
 
 struct MasterSettings
 {
@@ -82,6 +103,17 @@ struct MasterSettings
     float exciter = 0.12f;
     float exciterHz = 6500.0f;
     float exciterMix = 0.45f;
+    float exciterX1Hz = 180.0f;
+    float exciterX2Hz = 1800.0f;
+    float exciterX3Hz = 6500.0f;
+    float exciterBand1 = 0.04f;
+    float exciterBand2 = 0.08f;
+    float exciterBand3 = 0.12f;
+    float exciterBand4 = 0.14f;
+    int exciterMode1 = 0;
+    int exciterMode2 = 1;
+    int exciterMode3 = 2;
+    int exciterMode4 = 3;
 
     float bassMonoHz = 115.0f;
     float bassMonoAmount = 1.0f;
@@ -129,11 +161,20 @@ public:
         resonanceFilter.prepare (spec);
         glueComp.prepare (spec);
 
-        oversampling = std::make_unique<juce::dsp::Oversampling<float>> (
+        exciterSplit1.prepare (spec);
+        exciterSplit2.prepare (spec);
+        exciterSplit3.prepare (spec);
+
+        clipOversampling = std::make_unique<juce::dsp::Oversampling<float>> (
             (size_t) numChannels, 3,
             juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
             true, true);
-        oversampling->initProcessing ((size_t) maxBlock);
+        limitOversampling = std::make_unique<juce::dsp::Oversampling<float>> (
+            (size_t) numChannels, 3,
+            juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
+            true, true);
+        clipOversampling->initProcessing ((size_t) maxBlock);
+        limitOversampling->initProcessing ((size_t) maxBlock);
 
         lookaheadSamplesOs = juce::jmax (8, (int) std::ceil (sampleRate * 8.0 * 0.0015));
         lookaheadRing.assign ((size_t) numChannels * (size_t) lookaheadSamplesOs, 0.0f);
@@ -150,7 +191,9 @@ public:
     {
         lowCut.reset(); lowShelf.reset(); lowMid.reset(); mid.reset(); presence.reset(); highMid.reset(); air.reset();
         resonanceFilter.reset(); glueComp.reset();
-        if (oversampling) oversampling->reset();
+        exciterSplit1.reset(); exciterSplit2.reset(); exciterSplit3.reset();
+        if (clipOversampling) clipOversampling->reset();
+        if (limitOversampling) limitOversampling->reset();
         std::fill (lookaheadRing.begin(), lookaheadRing.end(), 0.0f);
         lookaheadIndex = 0;
 
@@ -185,13 +228,21 @@ public:
         settings = s;
         updateFilters();
         updateCompressor();
+        updateExciterCrossovers();
+    }
+
+    void setChainOrder (const std::array<int, forgeModuleCount>& newOrder, int newCount)
+    {
+        chainOrder = newOrder;
+        chainCount = juce::jlimit (0, forgeModuleCount, newCount);
     }
 
     int getLatencySamples() const
     {
-        const int osLatency = oversampling ? (int) std::ceil (oversampling->getLatencyInSamples()) : 0;
+        const int clipLatency = clipOversampling ? (int) std::ceil (clipOversampling->getLatencyInSamples()) : 0;
+        const int limitLatency = limitOversampling ? (int) std::ceil (limitOversampling->getLatencyInSamples()) : 0;
         const int lookaheadBase = (int) std::ceil ((double) lookaheadSamplesOs / 8.0);
-        return osLatency + lookaheadBase;
+        return clipLatency + limitLatency + lookaheadBase;
     }
 
     void process (juce::AudioBuffer<float>& buffer)
@@ -215,46 +266,69 @@ public:
 
         applyInputCoach (buffer);
 
-        juce::dsp::AudioBlock<float> block (buffer);
-        juce::dsp::ProcessContextReplacing<float> ctx (block);
+        bool clipperVisited = false;
+        bool limiterVisited = false;
 
-        if (settings.cleanEqOn)
+        for (int slot = 0; slot < chainCount; ++slot)
         {
-            lowCut.process (ctx);
-            lowShelf.process (ctx);
-            lowMid.process (ctx);
-            mid.process (ctx);
-            presence.process (ctx);
-            highMid.process (ctx);
-            air.process (ctx);
+            const auto module = static_cast<ForgeModule> (chainOrder[(size_t) slot]);
+
+            switch (module)
+            {
+                case ForgeModule::Equalizer:
+                    if (settings.cleanEqOn) processEqualizer (buffer);
+                    break;
+
+                case ForgeModule::DynamicEq:
+                    if (settings.dynamicEqOn) processDynamicEq (buffer);
+                    break;
+
+                case ForgeModule::Stabilizer:
+                    if (settings.resonanceOn) processStabilizer (buffer);
+                    break;
+
+                case ForgeModule::VintageComp:
+                    if (settings.glueOn) processGlue (buffer);
+                    break;
+
+                case ForgeModule::Multiband:
+                    if (settings.multibandOn) processMultiband (buffer);
+                    break;
+
+                case ForgeModule::Impact:
+                    if (settings.impactOn) processImpact (buffer);
+                    break;
+
+                case ForgeModule::Saturation:
+                    if (settings.analogOn) processAnalog (buffer);
+                    break;
+
+                case ForgeModule::Exciter:
+                    if (settings.exciterOn) processExciter (buffer);
+                    break;
+
+                case ForgeModule::LowEndFocus:
+                    if (settings.bassMonoOn) processBassMono (buffer);
+                    break;
+
+                case ForgeModule::Imager:
+                    if (settings.imagerOn) processImager (buffer);
+                    break;
+
+                case ForgeModule::Clipper:
+                    processClipper (buffer, settings.clipperOn);
+                    clipperVisited = true;
+                    break;
+
+                case ForgeModule::Maximizer:
+                    processLimiter (buffer, settings.limiterOn);
+                    limiterVisited = true;
+                    break;
+
+                case ForgeModule::Count:
+                    break;
+            }
         }
-
-        if (settings.dynamicEqOn)
-            processDynamicEq (buffer);
-
-        if (settings.resonanceOn)
-            resonanceFilter.process (ctx);
-
-        if (settings.glueOn)
-            processGlue (buffer);
-
-        if (settings.multibandOn)
-            processMultiband (buffer);
-
-        if (settings.impactOn)
-            processImpact (buffer);
-
-        if (settings.analogOn)
-            processAnalog (buffer);
-
-        if (settings.exciterOn)
-            processExciter (buffer);
-
-        if (settings.bassMonoOn)
-            processBassMono (buffer);
-
-        if (settings.imagerOn)
-            processImager (buffer);
 
         if (settings.dryWet < 0.999f)
         {
@@ -267,10 +341,12 @@ public:
             }
         }
 
-        if ((settings.clipperOn || settings.limiterOn) && oversampling)
-            processOversampledFinal (buffer);
-        else
-            limiterReductionDb.store (0.0f);
+        // Keep host latency constant even if the nonlinear final modules are removed from the visible chain.
+        if (! clipperVisited)
+            processClipper (buffer, false);
+
+        if (! limiterVisited)
+            processLimiter (buffer, false);
 
         applyOutputTrim (buffer);
 
@@ -309,6 +385,39 @@ private:
     {
         ms = juce::jmax (0.05f, ms);
         return std::exp (-1.0f / (0.001f * ms * (float) sr));
+    }
+
+    void processEqualizer (juce::AudioBuffer<float>& buffer)
+    {
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::dsp::ProcessContextReplacing<float> ctx (block);
+        lowCut.process (ctx);
+        lowShelf.process (ctx);
+        lowMid.process (ctx);
+        mid.process (ctx);
+        presence.process (ctx);
+        highMid.process (ctx);
+        air.process (ctx);
+    }
+
+    void processStabilizer (juce::AudioBuffer<float>& buffer)
+    {
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::dsp::ProcessContextReplacing<float> ctx (block);
+        resonanceFilter.process (ctx);
+    }
+
+    void updateExciterCrossovers()
+    {
+        if (sampleRate <= 0.0)
+            return;
+
+        const float x1 = juce::jlimit (60.0f, 1000.0f, settings.exciterX1Hz);
+        const float x2 = juce::jlimit (juce::jmax (x1 + 120.0f, 300.0f), 6000.0f, settings.exciterX2Hz);
+        const float x3 = juce::jlimit (juce::jmax (x2 + 300.0f, 1800.0f), 16000.0f, settings.exciterX3Hz);
+        exciterSplit1.setCutoffFrequency (x1);
+        exciterSplit2.setCutoffFrequency (x2);
+        exciterSplit3.setCutoffFrequency (x3);
     }
 
     void updateFilters()
@@ -578,28 +687,82 @@ private:
         }
     }
 
+    static float exciteBandSample (float x, float amount, int mode)
+    {
+        amount = juce::jlimit (0.0f, 1.0f, amount);
+        if (amount <= 0.00001f)
+            return x;
+
+        const float drive = 1.0f + amount * 3.5f;
+        const float z = x * drive;
+        float shaped = x;
+
+        switch (juce::jlimit (0, 6, mode))
+        {
+            case 0: // Warm
+                shaped = std::tanh (z) / juce::jmax (0.001f, std::tanh (drive));
+                break;
+            case 1: // Tape
+                shaped = (2.0f / juce::MathConstants<float>::pi) * std::atan (z * 1.35f);
+                break;
+            case 2: // Tube
+                shaped = z / (1.0f + 0.72f * std::abs (z));
+                break;
+            case 3: // Triode
+            {
+                const float soft = std::tanh (z * 0.82f);
+                shaped = soft * (0.94f + 0.06f * soft * soft);
+                break;
+            }
+            case 4: // Retro
+                shaped = z - 0.16f * z * z * z;
+                shaped = juce::jlimit (-1.4f, 1.4f, shaped);
+                break;
+            case 5: // Dual
+                shaped = 0.58f * std::tanh (z) + 0.42f * ((2.0f / juce::MathConstants<float>::pi) * std::atan (z * 1.7f));
+                break;
+            default: // Clean
+                shaped = std::tanh (z * 0.62f) / juce::jmax (0.001f, std::tanh (drive * 0.62f));
+                break;
+        }
+
+        return x + (shaped - x) * amount;
+    }
+
     void processExciter (juce::AudioBuffer<float>& buffer)
     {
-        const float amount = juce::jlimit (0.0f, 1.0f, settings.exciter);
+        const float global = juce::jlimit (0.0f, 1.0f, settings.exciter);
         const float mix = juce::jlimit (0.0f, 1.0f, settings.exciterMix);
-        const float a = coeffForHz (juce::jlimit (2500.0f, 14000.0f, settings.exciterHz), sampleRate);
 
         for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
         {
             auto* d = buffer.getWritePointer (ch);
-            float lp = exciterLp[(size_t) ch];
 
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
                 const float x = d[i];
-                lp += a * (x - lp);
-                const float high = x - lp;
-                const float harmonic = std::tanh (high * 6.5f) * 0.12f;
-                d[i] = x + harmonic * amount * mix;
-            }
 
-            exciterLp[(size_t) ch] = lp;
+                float band1 = 0.0f, rest1 = 0.0f;
+                float band2 = 0.0f, rest2 = 0.0f;
+                float band3 = 0.0f, band4 = 0.0f;
+
+                exciterSplit1.processSample (ch, x, band1, rest1);
+                exciterSplit2.processSample (ch, rest1, band2, rest2);
+                exciterSplit3.processSample (ch, rest2, band3, band4);
+
+                const float wet =
+                      exciteBandSample (band1, settings.exciterBand1 * global, settings.exciterMode1)
+                    + exciteBandSample (band2, settings.exciterBand2 * global, settings.exciterMode2)
+                    + exciteBandSample (band3, settings.exciterBand3 * global, settings.exciterMode3)
+                    + exciteBandSample (band4, settings.exciterBand4 * global, settings.exciterMode4);
+
+                d[i] = x + (wet - x) * mix;
+            }
         }
+
+        exciterSplit1.snapToZero();
+        exciterSplit2.snapToZero();
+        exciterSplit3.snapToZero();
     }
 
     void processBassMono (juce::AudioBuffer<float>& buffer)
@@ -689,25 +852,20 @@ private:
         imagerHighLp[0] = highLpL; imagerHighLp[1] = highLpR;
     }
 
-    void processOversampledFinal (juce::AudioBuffer<float>& buffer)
+    void processClipper (juce::AudioBuffer<float>& buffer, bool enabled)
     {
+        if (! clipOversampling)
+            return;
+
         juce::dsp::AudioBlock<float> block (buffer);
-        auto up = oversampling->processSamplesUp (block);
+        auto up = clipOversampling->processSamplesUp (block);
 
         const float clipDriveTarget = juce::Decibels::decibelsToGain (settings.clipDriveDb);
         const float clipCeilingTarget = juce::Decibels::decibelsToGain (settings.clipCeilingDb);
-        const float clipMix = juce::jlimit (0.0f, 1.0f, settings.clipMix);
+        const float clipMix = enabled ? juce::jlimit (0.0f, 1.0f, settings.clipMix) : 0.0f;
         const float shape = juce::jlimit (0.0f, 1.0f, settings.clipShape);
         const float k = juce::jmap (shape, 0.70f, 2.80f);
         const float tanhNorm = juce::jmax (0.001f, std::tanh (k));
-
-        const float limDriveTarget = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
-        const float requestedCeiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
-        const float ceilingTarget = requestedCeiling * juce::Decibels::decibelsToGain (-0.25f);
-        const double osRate = sampleRate * 8.0;
-        const float release = timeCoeff (settings.limiterReleaseMs, osRate);
-
-        float maxReduction = 0.0f;
         const float denom = (float) juce::jmax ((size_t) 1, up.getNumSamples() - 1);
 
         for (size_t i = 0; i < up.getNumSamples(); ++i)
@@ -715,6 +873,49 @@ private:
             const float t = (float) i / denom;
             const float clipDrive = juce::jmap (t, lastClipDriveGain, clipDriveTarget);
             const float clipCeiling = juce::jmap (t, lastClipCeilingGain, clipCeilingTarget);
+
+            for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
+            {
+                auto* d = up.getChannelPointer (ch);
+                const float x = std::isfinite (d[i]) ? d[i] : 0.0f;
+
+                if (clipMix > 0.00001f)
+                {
+                    const float normalized = x * clipDrive / juce::jmax (0.05f, clipCeiling);
+                    const float soft = std::tanh (normalized * k) / tanhNorm * clipCeiling;
+                    d[i] = x + (soft - x) * clipMix;
+                }
+                else
+                {
+                    d[i] = x;
+                }
+            }
+        }
+
+        lastClipDriveGain = clipDriveTarget;
+        lastClipCeilingGain = clipCeilingTarget;
+        clipOversampling->processSamplesDown (block);
+    }
+
+    void processLimiter (juce::AudioBuffer<float>& buffer, bool enabled)
+    {
+        if (! limitOversampling)
+            return;
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        auto up = limitOversampling->processSamplesUp (block);
+
+        const float limDriveTarget = juce::Decibels::decibelsToGain (settings.limiterDriveDb);
+        const float requestedCeiling = juce::Decibels::decibelsToGain (settings.limiterCeilingDb);
+        const float ceilingTarget = requestedCeiling * juce::Decibels::decibelsToGain (-0.20f);
+        const double osRate = sampleRate * 8.0;
+        const float release = timeCoeff (settings.limiterReleaseMs, osRate);
+        const float denom = (float) juce::jmax ((size_t) 1, up.getNumSamples() - 1);
+        float maxReduction = 0.0f;
+
+        for (size_t i = 0; i < up.getNumSamples(); ++i)
+        {
+            const float t = (float) i / denom;
             const float limDrive = juce::jmap (t, lastLimiterDriveGain, limDriveTarget);
             const float ceiling = juce::jmap (t, lastLimiterCeilingGain, ceilingTarget);
             float peak = 0.0f;
@@ -722,79 +923,58 @@ private:
             for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
             {
                 auto* d = up.getChannelPointer (ch);
-                float x = d[i];
-
-                if (settings.clipperOn)
-                {
-                    const float normalized = x * clipDrive / juce::jmax (0.05f, clipCeiling);
-                    const float soft = std::tanh (normalized * k) / tanhNorm * clipCeiling;
-                    x = x + (soft - x) * clipMix;
-                }
-
-                if (settings.limiterOn)
+                float x = std::isfinite (d[i]) ? d[i] : 0.0f;
+                if (enabled)
                     x *= limDrive;
-
-                if (! std::isfinite (x))
-                    x = 0.0f;
-
                 d[i] = x;
                 peak = juce::jmax (peak, std::abs (x));
             }
 
-            if (settings.limiterOn)
-            {
-                const float target = peak > ceiling ? ceiling / juce::jmax (peak, 1.0e-9f) : 1.0f;
-                if (target < limiterGain)
-                    limiterGain = target;
-                else
-                    limiterGain = target + release * (limiterGain - target);
+            float target = 1.0f;
+            if (enabled && peak > ceiling)
+                target = ceiling / juce::jmax (peak, 1.0e-9f);
 
+            if (target < limiterGain)
+                limiterGain = target;
+            else
+                limiterGain = target + release * (limiterGain - target);
+
+            if (! enabled)
+                limiterGain += (1.0f - limiterGain) * (1.0f - release);
+
+            if (enabled)
+            {
                 const float reductionDb = -juce::Decibels::gainToDecibels (juce::jmax (limiterGain, 1.0e-6f));
                 maxReduction = juce::jmax (maxReduction, reductionDb);
-
-                for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
-                {
-                    auto* d = up.getChannelPointer (ch);
-                    const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
-                    const float delayed = lookaheadRing[ringOffset];
-                    lookaheadRing[ringOffset] = d[i];
-                    d[i] = juce::jlimit (-ceiling, ceiling, delayed * limiterGain);
-                }
-
-                if (++lookaheadIndex >= lookaheadSamplesOs)
-                    lookaheadIndex = 0;
             }
-            else
+
+            for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
             {
-                for (size_t ch = 0; ch < up.getNumChannels(); ++ch)
-                {
-                    auto* d = up.getChannelPointer (ch);
-                    const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
-                    const float delayed = lookaheadRing[ringOffset];
-                    lookaheadRing[ringOffset] = d[i];
-                    d[i] = delayed;
-                }
-
-                if (++lookaheadIndex >= lookaheadSamplesOs)
-                    lookaheadIndex = 0;
+                auto* d = up.getChannelPointer (ch);
+                const size_t ringOffset = ch * (size_t) lookaheadSamplesOs + (size_t) lookaheadIndex;
+                const float delayed = lookaheadRing[ringOffset];
+                lookaheadRing[ringOffset] = d[i];
+                d[i] = enabled ? juce::jlimit (-ceiling, ceiling, delayed * limiterGain)
+                               : delayed;
             }
+
+            if (++lookaheadIndex >= lookaheadSamplesOs)
+                lookaheadIndex = 0;
         }
 
-        lastClipDriveGain = clipDriveTarget;
-        lastClipCeilingGain = clipCeilingTarget;
         lastLimiterDriveGain = limDriveTarget;
         lastLimiterCeilingGain = ceilingTarget;
+        limiterReductionDb.store (enabled ? maxReduction : 0.0f);
+        limitOversampling->processSamplesDown (block);
 
-        limiterReductionDb.store (maxReduction);
-        oversampling->processSamplesDown (block);
-
-        // Reconstruction after oversampling can create tiny inter-sample overs.
-        // Keep an inaudible final safety guard at the user-selected ceiling.
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        if (enabled)
         {
-            auto* d = buffer.getWritePointer (ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                d[i] = juce::jlimit (-requestedCeiling, requestedCeiling, d[i]);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                auto* d = buffer.getWritePointer (ch);
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    d[i] = juce::jlimit (-requestedCeiling, requestedCeiling, d[i]);
+            }
         }
     }
 
@@ -918,10 +1098,16 @@ private:
     int lookaheadIndex = 0;
     std::vector<float> lookaheadRing;
     MasterSettings settings;
+    std::array<int, forgeModuleCount> chainOrder { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    int chainCount = forgeModuleCount;
 
     Filter lowCut, lowShelf, lowMid, mid, presence, highMid, air, resonanceFilter;
     juce::dsp::Compressor<float> glueComp;
-    std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
+    juce::dsp::LinkwitzRileyFilter<float> exciterSplit1;
+    juce::dsp::LinkwitzRileyFilter<float> exciterSplit2;
+    juce::dsp::LinkwitzRileyFilter<float> exciterSplit3;
+    std::unique_ptr<juce::dsp::Oversampling<float>> clipOversampling;
+    std::unique_ptr<juce::dsp::Oversampling<float>> limitOversampling;
     juce::AudioBuffer<float> dry;
     juce::AudioBuffer<float> glueDry;
     juce::Random random;

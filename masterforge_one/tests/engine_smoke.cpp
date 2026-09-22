@@ -39,7 +39,20 @@ int main()
     settings.limiterDriveDb = 4.5f;
     settings.clipDriveDb = 1.0f;
     settings.ditherOn = false;
+    settings.exciterOn = true;
+    settings.exciter = 0.75f;
+    settings.exciterMix = 0.65f;
+    settings.exciterX1Hz = 170.0f;
+    settings.exciterX2Hz = 1700.0f;
+    settings.exciterX3Hz = 6400.0f;
+    settings.exciterBand1 = 0.04f;
+    settings.exciterBand2 = 0.08f;
+    settings.exciterBand3 = 0.12f;
+    settings.exciterBand4 = 0.15f;
     engine.setSettings (settings);
+
+    std::array<int, forgeModuleCount> customOrder { 0, 3, 1, 4, 5, 6, 7, 8, 9, 10, 2, 11 };
+    engine.setChainOrder (customOrder, forgeModuleCount);
 
     juce::AudioBuffer<float> audio (channels, block);
     double phase = 0.0;
@@ -102,6 +115,23 @@ int main()
         {
             std::cerr << "FAIL: Smart Gain winds up on silence\n";
             return 6;
+        }
+    }
+
+    // Module removal must remain finite and keep reported latency stable.
+    {
+        std::array<int, forgeModuleCount> shortChain { 0, 3, 7, 9, 10, 11, 0, 0, 0, 0, 0, 0 };
+        engine.setChainOrder (shortChain, 6);
+        audio.clear();
+        audio.setSample (0, 0, 0.6f);
+        audio.setSample (1, 0, -0.5f);
+        for (int pass = 0; pass < 16; ++pass)
+            engine.process (audio);
+
+        if (! allFinite (audio))
+        {
+            std::cerr << "FAIL: custom module chain produced non-finite samples\n";
+            return 7;
         }
     }
 

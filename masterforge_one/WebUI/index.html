@@ -23,13 +23,38 @@
           <div id="presetMenu" class="preset-menu" role="listbox"></div>
         </div>
 
-        <button id="bypassBtn" class="bypass" data-tip="Глобальный BYPASS. Полностью отключает мастеринг-обработку для честного сравнения с исходником.">
+        <button id="bypassBtn" class="bypass" data-tip="Глобальный BYPASS. Полностью отключает мастеринг-обработку для честного сравнения.">
           <span class="switch-dot"></span><span>BYPASS</span>
         </button>
       </div>
     </header>
 
-    <nav id="chain" class="chain"></nav>
+    <section class="chain-shell">
+      <div class="fixed-chain-card input-card" data-fixed-module="input">
+        <div class="fixed-dot"></div>
+        <div>
+          <div class="fixed-title">INPUT / LEVEL</div>
+          <div class="fixed-sub">Gain staging</div>
+        </div>
+      </div>
+
+      <div id="chainScroll" class="chain-scroll">
+        <nav id="chain" class="chain"></nav>
+      </div>
+
+      <div class="chain-actions">
+        <button id="addModuleBtn" class="add-module-btn" data-tip="Добавить модуль в цепочку.">+</button>
+        <div id="modulePicker" class="module-picker"></div>
+      </div>
+
+      <div class="fixed-chain-card output-card" data-fixed-module="output">
+        <div class="fixed-dot output-dot"></div>
+        <div>
+          <div class="fixed-title">OUTPUT</div>
+          <div class="fixed-sub">Final stage</div>
+        </div>
+      </div>
+    </section>
 
     <main class="workspace">
       <section class="main-column">
@@ -49,7 +74,7 @@
           <div id="eqStage" class="eq-stage">
             <canvas id="eqCanvas"></canvas>
             <div id="eqInspector" class="eq-inspector"></div>
-            <div class="eq-hint">Точка EQ: тяните мышью · колесо = Q · двойной клик = сброс полосы</div>
+            <div class="eq-hint">EQ: тяните точку · колесо = Q · двойной клик = сброс</div>
           </div>
         </div>
 
@@ -62,7 +87,10 @@
                 <div id="moduleTitle" class="module-title">INPUT / LEVEL</div>
               </div>
             </div>
-            <button id="helpBtn" class="help-btn" data-tip="Подробная инструкция по выбранному модулю.">?</button>
+            <div class="module-head-actions">
+              <button id="removeModuleBtn" class="remove-module-btn" data-tip="Удалить выбранный модуль из цепочки.">−</button>
+              <button id="helpBtn" class="help-btn" data-tip="Подробная инструкция по выбранному модулю.">?</button>
+            </div>
           </div>
 
           <div id="moduleControls" class="controls-grid"></div>
@@ -123,7 +151,7 @@
       <div class="eyebrow">ИНСТРУКЦИЯ</div>
       <h2 id="modalTitle"></h2>
       <p id="modalText"></p>
-      <div class="modal-tip">Рабочий принцип: сначала исправляйте проблему, потом добавляйте характер. Сравнивайте по одинаковой громкости.</div>
+      <div class="modal-tip">Сначала решайте проблему, потом добавляйте характер. Всегда сравнивайте при похожей громкости.</div>
     </div>
   </div>
 

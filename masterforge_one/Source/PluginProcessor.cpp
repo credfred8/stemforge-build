@@ -5,6 +5,7 @@ namespace
 {
 using FloatP = juce::AudioParameterFloat;
 using BoolP = juce::AudioParameterBool;
+using ChoiceP = juce::AudioParameterChoice;
 
 juce::NormalisableRange<float> range (float lo, float hi, float step = 0.01f)
 {
@@ -25,6 +26,7 @@ MasterForgeAudioProcessor::MasterForgeAudioProcessor()
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "MASTERFORGE_PARAMETERS", createLayout())
 {
+    resetDefaultChain();
     applyPreset (0);
 }
 
@@ -102,6 +104,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout MasterForgeAudioProcessor::c
     l.add (std::make_unique<FloatP> ("exciter", "Exciter Amount", range (0.0f, 1.0f, 0.001f), 0.12f));
     l.add (std::make_unique<FloatP> ("exciterHz", "Exciter Frequency", freqRange (2500.0f, 14000.0f, 6500.0f), 6500.0f));
     l.add (std::make_unique<FloatP> ("exciterMix", "Exciter Mix", range (0.0f, 1.0f, 0.001f), 0.45f));
+    l.add (std::make_unique<FloatP> ("exciterX1", "Exciter Crossover 1", freqRange (60.0f, 1000.0f, 180.0f), 180.0f));
+    l.add (std::make_unique<FloatP> ("exciterX2", "Exciter Crossover 2", freqRange (300.0f, 6000.0f, 1800.0f), 1800.0f));
+    l.add (std::make_unique<FloatP> ("exciterX3", "Exciter Crossover 3", freqRange (1800.0f, 16000.0f, 6500.0f), 6500.0f));
+    l.add (std::make_unique<FloatP> ("exciterBand1", "Exciter Low Amount", range (0.0f, 1.0f, 0.001f), 0.04f));
+    l.add (std::make_unique<FloatP> ("exciterBand2", "Exciter Low Mid Amount", range (0.0f, 1.0f, 0.001f), 0.08f));
+    l.add (std::make_unique<FloatP> ("exciterBand3", "Exciter High Mid Amount", range (0.0f, 1.0f, 0.001f), 0.12f));
+    l.add (std::make_unique<FloatP> ("exciterBand4", "Exciter High Amount", range (0.0f, 1.0f, 0.001f), 0.14f));
+
+    const juce::StringArray exciterModes { "Warm", "Tape", "Tube", "Triode", "Retro", "Dual", "Clean" };
+    l.add (std::make_unique<ChoiceP> ("exciterMode1", "Exciter Low Mode", exciterModes, 0));
+    l.add (std::make_unique<ChoiceP> ("exciterMode2", "Exciter Low Mid Mode", exciterModes, 1));
+    l.add (std::make_unique<ChoiceP> ("exciterMode3", "Exciter High Mid Mode", exciterModes, 2));
+    l.add (std::make_unique<ChoiceP> ("exciterMode4", "Exciter High Mode", exciterModes, 3));
 
     l.add (std::make_unique<BoolP> ("bassMonoOn", "Bass Mono", true));
     l.add (std::make_unique<FloatP> ("bassMonoHz", "Bass Mono Frequency", freqRange (45.0f, 250.0f, 115.0f), 115.0f));
@@ -226,6 +241,17 @@ MasterSettings MasterForgeAudioProcessor::readSettings() const
     s.exciter = g ("exciter");
     s.exciterHz = g ("exciterHz");
     s.exciterMix = g ("exciterMix");
+    s.exciterX1Hz = g ("exciterX1");
+    s.exciterX2Hz = g ("exciterX2");
+    s.exciterX3Hz = g ("exciterX3");
+    s.exciterBand1 = g ("exciterBand1");
+    s.exciterBand2 = g ("exciterBand2");
+    s.exciterBand3 = g ("exciterBand3");
+    s.exciterBand4 = g ("exciterBand4");
+    s.exciterMode1 = (int) g ("exciterMode1");
+    s.exciterMode2 = (int) g ("exciterMode2");
+    s.exciterMode3 = (int) g ("exciterMode3");
+    s.exciterMode4 = (int) g ("exciterMode4");
 
     s.bassMonoOn = b ("bassMonoOn");
     s.bassMonoHz = g ("bassMonoHz");
@@ -264,6 +290,13 @@ void MasterForgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         buffer.clear (ch, 0, buffer.getNumSamples());
 
     engine.setSettings (readSettings());
+
+    std::array<int, forgeModuleCount> order {};
+    const int count = juce::jlimit (0, forgeModuleCount, chainCountAtomic.load (std::memory_order_acquire));
+    for (int i = 0; i < forgeModuleCount; ++i)
+        order[(size_t) i] = chainOrderAtomic[(size_t) i].load (std::memory_order_relaxed);
+
+    engine.setChainOrder (order, count);
     engine.process (buffer);
 }
 
@@ -316,7 +349,10 @@ void MasterForgeAudioProcessor::applyPreset (int index)
     set ("analog", 0.14f); set ("analogTone", 0.58f); set ("analogMix", 0.52f);
 
     setBool ("exciterOn", true);
-    set ("exciter", 0.10f); set ("exciterHz", 6500.0f); set ("exciterMix", 0.42f);
+    set ("exciter", 0.34f); set ("exciterHz", 6500.0f); set ("exciterMix", 0.70f);
+    set ("exciterX1", 180.0f); set ("exciterX2", 1800.0f); set ("exciterX3", 6500.0f);
+    set ("exciterBand1", 0.05f); set ("exciterBand2", 0.08f); set ("exciterBand3", 0.12f); set ("exciterBand4", 0.14f);
+    set ("exciterMode1", 0.0f); set ("exciterMode2", 1.0f); set ("exciterMode3", 2.0f); set ("exciterMode4", 3.0f);
 
     setBool ("bassMonoOn", true);
     set ("bassMonoHz", 115.0f); set ("bassMonoAmount", 1.0f);
@@ -482,6 +518,9 @@ void MasterForgeAudioProcessor::applyPreset (int index)
             set ("exciter", 0.0f);
             set ("exciterHz", 6500.0f);
             set ("exciterMix", 0.0f);
+            set ("exciterX1", 180.0f); set ("exciterX2", 1800.0f); set ("exciterX3", 6500.0f);
+            set ("exciterBand1", 0.0f); set ("exciterBand2", 0.0f); set ("exciterBand3", 0.0f); set ("exciterBand4", 0.0f);
+            set ("exciterMode1", 0.0f); set ("exciterMode2", 1.0f); set ("exciterMode3", 2.0f); set ("exciterMode4", 3.0f);
 
             setBool ("bassMonoOn", false);
             set ("bassMonoHz", 115.0f);
@@ -514,6 +553,70 @@ void MasterForgeAudioProcessor::applyPreset (int index)
     }
 }
 
+
+void MasterForgeAudioProcessor::resetDefaultChain()
+{
+    for (int i = 0; i < forgeModuleCount; ++i)
+        chainOrderAtomic[(size_t) i].store (i, std::memory_order_relaxed);
+
+    chainCountAtomic.store (forgeModuleCount, std::memory_order_release);
+}
+
+void MasterForgeAudioProcessor::setModuleChain (const std::vector<int>& modules)
+{
+    std::array<bool, forgeModuleCount> used {};
+    int count = 0;
+
+    for (auto index : modules)
+    {
+        if (index < 0 || index >= forgeModuleCount || used[(size_t) index])
+            continue;
+
+        chainOrderAtomic[(size_t) count].store (index, std::memory_order_relaxed);
+        used[(size_t) index] = true;
+        ++count;
+
+        if (count >= forgeModuleCount)
+            break;
+    }
+
+    for (int i = count; i < forgeModuleCount; ++i)
+        chainOrderAtomic[(size_t) i].store (i, std::memory_order_relaxed);
+
+    chainCountAtomic.store (count, std::memory_order_release);
+}
+
+std::vector<int> MasterForgeAudioProcessor::getModuleChain() const
+{
+    const int count = juce::jlimit (0, forgeModuleCount, chainCountAtomic.load (std::memory_order_acquire));
+    std::vector<int> result;
+    result.reserve ((size_t) count);
+
+    for (int i = 0; i < count; ++i)
+        result.push_back (chainOrderAtomic[(size_t) i].load (std::memory_order_relaxed));
+
+    return result;
+}
+
+juce::String MasterForgeAudioProcessor::moduleIdForIndex (int index)
+{
+    static const std::array<juce::String, forgeModuleCount> ids {
+        "eq", "dynamic", "stabilizer", "comp", "multiband", "impact",
+        "saturation", "exciter", "lowend", "imager", "clipper", "maximizer"
+    };
+
+    return (index >= 0 && index < forgeModuleCount) ? ids[(size_t) index] : juce::String();
+}
+
+int MasterForgeAudioProcessor::moduleIndexForId (const juce::String& id)
+{
+    for (int i = 0; i < forgeModuleCount; ++i)
+        if (moduleIdForIndex (i) == id)
+            return i;
+
+    return -1;
+}
+
 void MasterForgeAudioProcessor::setCurrentProgram (int index)
 {
     applyPreset (index);
@@ -528,6 +631,12 @@ void MasterForgeAudioProcessor::getStateInformation (juce::MemoryBlock& destData
 {
     auto state = apvts.copyState();
     state.setProperty ("preset", currentPreset, nullptr);
+
+    juce::StringArray chainIds;
+    for (auto index : getModuleChain())
+        chainIds.add (moduleIdForIndex (index));
+    state.setProperty ("moduleChain", chainIds.joinIntoString (","), nullptr);
+
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -540,6 +649,24 @@ void MasterForgeAudioProcessor::setStateInformation (const void* data, int sizeI
         {
             auto state = juce::ValueTree::fromXml (*xml);
             currentPreset = (int) state.getProperty ("preset", 0);
+
+            const auto chainText = state.getProperty ("moduleChain", {}).toString();
+            if (chainText.isNotEmpty())
+            {
+                std::vector<int> chain;
+                for (const auto& id : juce::StringArray::fromTokens (chainText, ",", ""))
+                {
+                    const int index = moduleIndexForId (id.trim());
+                    if (index >= 0)
+                        chain.push_back (index);
+                }
+                setModuleChain (chain);
+            }
+            else
+            {
+                resetDefaultChain();
+            }
+
             apvts.replaceState (state);
         }
     }

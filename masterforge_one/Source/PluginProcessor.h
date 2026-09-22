@@ -34,6 +34,11 @@ public:
     void applyPreset (int index);
     int getPresetIndex() const { return currentPreset; }
 
+    void setModuleChain (const std::vector<int>& modules);
+    std::vector<int> getModuleChain() const;
+    static juce::String moduleIdForIndex (int index);
+    static int moduleIndexForId (const juce::String& id);
+
     juce::AudioProcessorValueTreeState apvts;
     MasterEngine engine;
 
@@ -53,7 +58,11 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     MasterSettings readSettings() const;
+    void resetDefaultChain();
+
     int currentPreset = 0;
+    std::array<std::atomic<int>, forgeModuleCount> chainOrderAtomic {};
+    std::atomic<int> chainCountAtomic { forgeModuleCount };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterForgeAudioProcessor)
 };
