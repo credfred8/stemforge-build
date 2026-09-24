@@ -1,4 +1,4 @@
-#include <JuceHeader.h>
+#include <juce_audio_basics/juce_audio_basics.h>\n#include <juce_dsp/juce_dsp.h>
 #include "../Source/OneKnobEngine.h"
 #include <iostream>
 #include <cmath>
