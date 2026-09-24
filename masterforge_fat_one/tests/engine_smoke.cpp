@@ -33,8 +33,7 @@ int main()
             const float x = b.getSample (ch, i);
             if (!std::isfinite (x))
             {
-                std::cerr << "non-finite output
-";
+                std::cerr << "non-finite output" << std::endl;
                 return 2;
             }
             maxAbs = juce::jmax (maxAbs, std::abs (x));
@@ -42,20 +41,19 @@ int main()
         }
 
     const float rms = (float) std::sqrt (sumSq / (2.0 * n));
-    std::cout << "peak=" << maxAbs << " rms=" << rms << "
-";
+    std::cout << "peak=" << maxAbs << " rms=" << rms << std::endl;
 
     if (maxAbs > 1.02f)
     {
-        std::cerr << "peak safety failed
-";
+        std::cerr << "peak safety failed" << std::endl;
         return 3;
     }
+
     if (rms <= 0.01f)
     {
-        std::cerr << "unexpected silence
-";
+        std::cerr << "unexpected silence" << std::endl;
         return 4;
     }
+
     return 0;
 }
