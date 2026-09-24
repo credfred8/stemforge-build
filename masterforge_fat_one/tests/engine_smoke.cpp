@@ -1,4 +1,5 @@
-#include <juce_audio_basics/juce_audio_basics.h>\n#include <juce_dsp/juce_dsp.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_dsp/juce_dsp.h>
 #include "../Source/OneKnobEngine.h"
 #include <iostream>
 #include <cmath>
@@ -32,7 +33,8 @@ int main()
             const float x = b.getSample (ch, i);
             if (!std::isfinite (x))
             {
-                std::cerr << "non-finite output\n";
+                std::cerr << "non-finite output
+";
                 return 2;
             }
             maxAbs = juce::jmax (maxAbs, std::abs (x));
@@ -40,16 +42,19 @@ int main()
         }
 
     const float rms = (float) std::sqrt (sumSq / (2.0 * n));
-    std::cout << "peak=" << maxAbs << " rms=" << rms << "\n";
+    std::cout << "peak=" << maxAbs << " rms=" << rms << "
+";
 
     if (maxAbs > 1.02f)
     {
-        std::cerr << "peak safety failed\n";
+        std::cerr << "peak safety failed
+";
         return 3;
     }
     if (rms <= 0.01f)
     {
-        std::cerr << "unexpected silence\n";
+        std::cerr << "unexpected silence
+";
         return 4;
     }
     return 0;
