@@ -1,0 +1,74 @@
+name: Build MasterForge FAT ONE
+
+on:
+  push:
+    branches: [ fat-one-vst3 ]
+    paths:
+      - 'masterforge_fat_one/**'
+      - '.github/workflows/build-fat-one.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Windows x64
+        shell: pwsh
+        run: cmake -S masterforge_fat_one -B masterforge_fat_one/build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build DSP smoke test
+        shell: pwsh
+        run: cmake --build masterforge_fat_one/build --config Release --target MasterForgeSmoke --parallel 2
+
+      - name: Run DSP smoke test
+        shell: pwsh
+        run: |
+          $smoke = Get-ChildItem -Path masterforge_fat_one/build -Recurse -File -Filter "MasterForgeSmoke.exe" | Select-Object -First 1
+          if (-not $smoke) { throw "MasterForgeSmoke.exe not found" }
+          & $smoke.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build VST3 and standalone
+        shell: pwsh
+        run: |
+          cmake --build masterforge_fat_one/build --config Release --target MasterForgeFatOne_VST3 --parallel 2
+          cmake --build masterforge_fat_one/build --config Release --target MasterForgeFatOne_Standalone --parallel 2
+
+      - name: Stage and verify
+        shell: pwsh
+        run: |
+          $dist = "masterforge_fat_one/dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          $vst3 = Get-ChildItem -Path masterforge_fat_one/build -Recurse -Directory -Filter "MasterForge FAT ONE.vst3" | Select-Object -First 1
+          if (-not $vst3) { throw "MasterForge FAT ONE.vst3 bundle not found" }
+          Copy-Item -Recurse -Force $vst3.FullName "$dist/MasterForge FAT ONE.vst3"
+
+          $exe = Get-ChildItem -Path masterforge_fat_one/build -Recurse -File -Filter "MasterForge FAT ONE.exe" | Select-Object -First 1
+          if (-not $exe) { throw "Standalone EXE not found" }
+          Copy-Item -Force $exe.FullName "$dist/MasterForge FAT ONE.exe"
+
+          Copy-Item -Force "masterforge_fat_one/README.md" "$dist/README.md"
+
+          $binary = Get-ChildItem -Path "$dist/MasterForge FAT ONE.vst3" -Recurse -File |
+            Where-Object { $_.Name -eq "MasterForge FAT ONE.vst3" } |
+            Select-Object -First 1
+          if (-not $binary) { throw "VST3 binary inside bundle not found" }
+          if ($binary.Length -lt 100000) { throw "VST3 binary unexpectedly small" }
+          if ((Get-Item "$dist/MasterForge FAT ONE.exe").Length -lt 100000) { throw "Standalone unexpectedly small" }
+
+          Write-Host "Verified VST3: $($binary.FullName) $($binary.Length) bytes"
+          Write-Host "Verified EXE: $((Get-Item "$dist/MasterForge FAT ONE.exe").Length) bytes"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MasterForge-FAT-ONE-Windows-x64
+          path: masterforge_fat_one/dist
+          if-no-files-found: error
+          compression-level: 9
