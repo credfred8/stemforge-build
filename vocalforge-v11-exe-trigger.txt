@@ -1,0 +1,1 @@
+Trigger VocalForge ONE v1.1 standalone Windows EXE validation.
